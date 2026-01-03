@@ -36,9 +36,28 @@ local function sub(self, m)
     return matrix2d.new(nv, self.rows, self.cols)
 end
 
+--- @param self Matrix2d
+--- @param m Matrix2d
+--- @return Matrix2d
 local function mul(self, m)
-    if self.rows ~= m.rows then error("Row mismatch!", 2) end
-    return error("Not implemented!", 2)
+    if self.cols ~= m.rows then error("Column-row mismatch!", 2) end
+
+    local result = matrix2d.fill(0, self.rows, m.cols)
+    local rv, rc = result.values, result.cols
+    local sv, sc = self.values, self.cols
+    local mv, mc = m.values, m.cols
+    for i = 1, result.rows do
+        local ior = (i - 1) * rc -- Precompute offsets to reduce computations. 
+        local ios = (i - 1) * sc
+        for k = 1, sc do -- The cache locality thing.
+            local iom = (k - 1) * mc
+            for j = 1, rc do
+                local ir = ior + j
+                rv[ir] = rv[ir] + sv[ios + k] * mv[iom + j]
+            end
+        end
+    end
+    return result
 end
 
 --- @param self Matrix2d
