@@ -37,6 +37,7 @@ local function sub(self, m)
 end
 
 local function mul(self, m)
+    if self.rows ~= m.rows then error("Row mismatch!", 2) end
     return error("Not implemented!", 2)
 end
 
@@ -47,6 +48,16 @@ local function scale(self, n)
     local nv, sv = {}, self.values
     for i = 1, self.rows * self.cols do
         nv[i] = sv[i] * n
+    end
+    return matrix2d.new(nv, self.rows, self.cols)
+end
+
+--- @param self Matrix2d
+--- @return Matrix2d
+local function copy(self)
+    local nv, sv = {}, self.values
+    for i = 1, self.rows * self.cols do
+        nv[i] = sv[i]
     end
     return matrix2d.new(nv, self.rows, self.cols)
 end
@@ -66,12 +77,46 @@ end
 
 --- @param self Matrix2d
 --- @return Matrix2d
-local function copy(self)
+local function relu(self)
     local nv, sv = {}, self.values
+    local max = math.max
     for i = 1, self.rows * self.cols do
-        nv[i] = sv[i]
+        nv[i] = max(0, sv[i])
     end
     return matrix2d.new(nv, self.rows, self.cols)
+end
+
+--- @param self Matrix2d
+--- @return Matrix2d
+local function softmax(self)
+    local nv, sv = {}, self.values
+    local sum, exp = 0, math.exp
+    for i = 1, self.rows * self.cols do
+        nv[i] = exp(sv[i])
+        sum = sum + nv[i]
+    end
+    return matrix2d.new(nv, self.rows, self.cols):scale(1 / sum)
+end
+
+--- @param self Matrix2d
+--- @return number
+local function sum(self)
+    local _sum, sv = 0, self.values
+    for i = 1, self.rows * self.cols do
+        _sum = _sum + sv[i]
+    end
+    return _sum
+end
+
+--- Returns the index with the highest value.
+--- @param self Matrix2d
+--- @return integer
+local function argmax(self)
+    local mi, sv = 1, self.values
+    for i = 1, self.rows * self.cols do
+        if sv[i] > sv[mi] then mi = i end
+    end
+    return mi
 end
 
 --- @param self Matrix2d
@@ -127,17 +172,24 @@ function matrix2d.new(values, rows, cols)
     self.rows = rows
     self.cols = cols
 
-    -- m, m
+    -- m, m -> m
     self.add = add
     self.sub = sub
     self.mul = mul
 
-    -- m, n
+    -- m, n -> m
     self.scale = scale
 
-    -- m
-    self.transpose = transpose
+    -- m -> m
     self.copy = copy
+    self.transpose = transpose
+    self.relu = relu
+    self.softmax = softmax
+
+    -- m -> v
+    self.sum = sum
+    self.argmax = argmax
+    self.tostring = tostring
 
     return setmetatable(self, { -- dunder methods!
         __add = add,
