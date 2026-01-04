@@ -80,56 +80,66 @@ end
 --- local total_grad = matrix2d.new(...)
 --- local input = matrix2d.new(...)
 --- local grad = matrix2d.new(...)
---- total_grad = total_grad + input:relu_grad(gradient)
+--- total_grad = total_grad + matrix2d.relu_grad(input, gradient)
 --- ```
---- @param self Matrix2d Input
---- @param m Matrix2d Gradient
+--- @param input Matrix2d Input
+--- @param grad Matrix2d Gradient
 --- @return Matrix2d
-local function relu_grad(self, m)
-    if self.rows ~= m.rows then error("Row mismatch!", 2) end
-    if self.cols ~= m.cols then error("Column mismatch!", 2) end
+function matrix2d.relu_grad(input, grad)
+    if input.rows ~= grad.rows then error("Row mismatch!", 2) end
+    if input.cols ~= grad.cols then error("Column mismatch!", 2) end
 
-    local nv, sv, mv = {}, self.values, m.values
+    local nv, sv, mv = {}, input.values, grad.values
     for i = 1, #sv do
         nv[i] = sv[i] > 0 and mv[i] or 0
     end
-    return matrix2d.new(nv, self.rows, self.cols)
+    return matrix2d.new(nv, input.rows, input.cols)
 end
 
---- @param self Matrix2d Softmax out
---- @param m Matrix2d Gradient
---- @return Matrix2d
-local function softmax_grad(self, m)
-    if self.rows ~= 1 and self.cols ~= 1 then error("Not a row/column vector!", 2) end
+--- @param input Matrix2d Softmax out
+--- @param grad Matrix2d Gradient
+--- @return Matrix2d output Jacobian multiplied by the gradient
+function matrix2d.softmax_grad(input, grad)
+    if input.rows ~= 1 and input.cols ~= 1 then error("Not a row/column vector!", 2) end
 
-    local jv, sv = {}, self.values
-    local size = math.max(self.rows, self.cols)
+    local jv, sv = {}, input.values
+    local size = math.max(input.rows, input.cols)
     for i = 1, size do
         for j = 1, size do
             local delta = (i == j) and 1 or 0
             jv[(j - 1) + (i - 1) * size + 1] = sv[i] * (delta - sv[j])
         end
     end
-    return matrix2d.new(jv, size, size):mul(m)
+    return matrix2d.new(jv, size, size):mul(grad)
 end
 
 --- @param p Matrix2d
 --- @param q Matrix2d
 --- @param grad Matrix2d
---- @return Matrix2d p_grad
---- @return Matrix2d q_grad
-function matrix2d.cross_entropy_grad(p, q, grad)
+--- @param do_p boolean Whether you want to calculate `p_grad`
+--- @param do_q boolean Whether you want to calculate `q_grad`
+--- @return Matrix2d? p_grad
+--- @return Matrix2d? q_grad
+function matrix2d.cross_entropy_grad(p, q, grad, do_p, do_q)
     if p.rows ~= q.rows or p.rows ~= grad.rows then error("Row mismatch!", 2) end
     if p.cols ~= q.cols or p.cols ~= grad.cols then error("Column mismatch!", 2) end
 
     local pv, qv, gv = p.values, q.values, grad.values
     local pgv, qgv = {}, {}
     local log = math.log
-    for i = 1, #pv do -- All input matrices are of same shape.
-        pgv[i] = -log(qv[i]) * gv[i]
-        qgv[i] = -pv[i] / qv[i] * gv[i]
+    if do_p then
+        for i = 1, #pv do
+            pgv[i] = -log(qv[i]) * gv[i]
+        end
     end
-    return matrix2d.new(pgv, p.rows, p.cols), matrix2d.new(qgv, q.rows, q.cols)
+    if do_q then
+        for i = 1, #pv do -- All input matrices are of same shape anyway.
+            qgv[i] = -pv[i] / qv[i] * gv[i]
+        end
+    end
+    return
+        do_p and matrix2d.new(pgv, p.rows, p.cols) or nil,
+        do_q and matrix2d.new(qgv, q.rows, q.cols) or nil
 end
 
 --- @param self Matrix2d
@@ -268,8 +278,6 @@ function matrix2d.new(values, rows, cols)
     self.sub = sub
     self.mul = mul
     self.cross_entropy = cross_entropy
-    self.relu_grad = relu_grad
-    self.softmax_grad = softmax_grad
 
     -- m, n -> m
     self.scale = scale
