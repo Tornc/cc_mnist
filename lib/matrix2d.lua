@@ -16,7 +16,7 @@ local function add(self, m)
     if self.cols ~= m.cols then error("Column mismatch!", 2) end
 
     local nv, sv, mv = {}, self.values, m.values
-    for i = 1, self.rows * self.cols do
+    for i = 1, #sv do
         nv[i] = sv[i] + mv[i]
     end
     return matrix2d.new(nv, self.rows, self.cols)
@@ -30,7 +30,7 @@ local function sub(self, m)
     if self.cols ~= m.cols then error("Column mismatch!", 2) end
 
     local nv, sv, mv = {}, self.values, m.values
-    for i = 1, self.rows * self.cols do
+    for i = 1, #sv do
         nv[i] = sv[i] - mv[i]
     end
     return matrix2d.new(nv, self.rows, self.cols)
@@ -47,9 +47,9 @@ local function mul(self, m)
     local sv, sc = self.values, self.cols
     local mv, mc = m.values, m.cols
     for i = 1, result.rows do
-        local ior = (i - 1) * rc -- Precompute offsets to reduce computations. 
+        local ior = (i - 1) * rc -- Precompute offsets to reduce computations.
         local ios = (i - 1) * sc
-        for k = 1, sc do -- The cache locality thing.
+        for k = 1, sc do         -- The cache locality thing.
             local iom = (k - 1) * mc
             for j = 1, rc do
                 local ir = ior + j
@@ -61,11 +61,83 @@ local function mul(self, m)
 end
 
 --- @param self Matrix2d
+--- @param m Matrix2d
+--- @return Matrix2d
+local function cross_entropy(self, m)
+    if self.rows ~= m.rows then error("Row mismatch!", 2) end
+    if self.cols ~= m.cols then error("Column mismatch!", 2) end
+
+    local nv, sv, mv = {}, self.values, m.values
+    local log = math.log
+    for i = 1, #sv do
+        nv[i] = sv[i] == 0 and 0 or sv[i] * -log(mv[i])
+    end
+    return matrix2d.new(nv, self.rows, self.cols)
+end
+
+--- Usage:
+--- ```lua
+--- local total_grad = matrix2d.new(...)
+--- local input = matrix2d.new(...)
+--- local grad = matrix2d.new(...)
+--- total_grad = total_grad + input:relu_grad(gradient)
+--- ```
+--- @param self Matrix2d Input
+--- @param m Matrix2d Gradient
+--- @return Matrix2d
+local function relu_grad(self, m)
+    if self.rows ~= m.rows then error("Row mismatch!", 2) end
+    if self.cols ~= m.cols then error("Column mismatch!", 2) end
+
+    local nv, sv, mv = {}, self.values, m.values
+    for i = 1, #sv do
+        nv[i] = sv[i] > 0 and mv[i] or 0
+    end
+    return matrix2d.new(nv, self.rows, self.cols)
+end
+
+--- @param self Matrix2d Softmax out
+--- @param m Matrix2d Gradient
+--- @return Matrix2d
+local function softmax_grad(self, m)
+    if self.rows ~= 1 and self.cols ~= 1 then error("Not a row/column vector!", 2) end
+
+    local jv, sv = {}, self.values
+    local size = math.max(self.rows, self.cols)
+    for i = 1, size do
+        for j = 1, size do
+            local delta = (i == j) and 1 or 0
+            jv[(j - 1) + (i - 1) * size + 1] = sv[i] * (delta - sv[j])
+        end
+    end
+    return matrix2d.new(jv, size, size):mul(m)
+end
+
+--- @param p Matrix2d
+--- @param q Matrix2d
+--- @param grad Matrix2d
+--- @return Matrix2d p_grad
+--- @return Matrix2d q_grad
+function matrix2d.cross_entropy_grad(p, q, grad)
+    if p.rows ~= q.rows or p.rows ~= grad.rows then error("Row mismatch!", 2) end
+    if p.cols ~= q.cols or p.cols ~= grad.cols then error("Column mismatch!", 2) end
+
+    local pv, qv, gv = p.values, q.values, grad.values
+    local pgv, qgv = {}, {}
+    local log = math.log
+    for i = 1, #pv do -- All input matrices are of same shape.
+        pgv[i] = -log(qv[i]) * gv[i]
+        qgv[i] = -pv[i] / qv[i] * gv[i]
+    end
+    return matrix2d.new(pgv, p.rows, p.cols), matrix2d.new(qgv, q.rows, q.cols)
+end
+
+--- @param self Matrix2d
 --- @param n number
 --- @return Matrix2d
 local function scale(self, n)
     local nv, sv = {}, self.values
-    for i = 1, self.rows * self.cols do
+    for i = 1, #sv do
         nv[i] = sv[i] * n
     end
     return matrix2d.new(nv, self.rows, self.cols)
@@ -75,7 +147,7 @@ end
 --- @return Matrix2d
 local function copy(self)
     local nv, sv = {}, self.values
-    for i = 1, self.rows * self.cols do
+    for i = 1, #sv do
         nv[i] = sv[i]
     end
     return matrix2d.new(nv, self.rows, self.cols)
@@ -86,7 +158,7 @@ end
 local function transpose(self)
     local nv, sv, r, c = {}, self.values, self.rows, self.cols
     local floor = math.floor
-    for i = 1, r * c do
+    for i = 1, #sv do
         local x = floor((i - 1) / c)
         local y = (i - 1) % c
         nv[y * r + x + 1] = sv[i]
@@ -99,7 +171,7 @@ end
 local function relu(self)
     local nv, sv = {}, self.values
     local max = math.max
-    for i = 1, self.rows * self.cols do
+    for i = 1, #sv do
         nv[i] = max(0, sv[i])
     end
     return matrix2d.new(nv, self.rows, self.cols)
@@ -110,7 +182,7 @@ end
 local function softmax(self)
     local nv, sv = {}, self.values
     local sum, exp = 0, math.exp
-    for i = 1, self.rows * self.cols do
+    for i = 1, #sv do
         nv[i] = exp(sv[i])
         sum = sum + nv[i]
     end
@@ -121,7 +193,7 @@ end
 --- @return number
 local function sum(self)
     local _sum, sv = 0, self.values
-    for i = 1, self.rows * self.cols do
+    for i = 1, #sv do
         _sum = _sum + sv[i]
     end
     return _sum
@@ -132,7 +204,7 @@ end
 --- @return integer
 local function argmax(self)
     local mi, sv = 1, self.values
-    for i = 1, self.rows * self.cols do
+    for i = 1, #sv do
         if sv[i] > sv[mi] then mi = i end
     end
     return mi
@@ -177,17 +249,17 @@ function matrix2d.fill_rand(rows, cols)
     return matrix2d.new(vs, rows, cols)
 end
 
---- @param values table? NOTE: nil acts as uninitialised matrix!
+--- @param values table
 --- @param rows integer
 --- @param cols integer
 --- @return Matrix2d
 function matrix2d.new(values, rows, cols)
-    if values and #values ~= rows * cols then error("Table size mismatch!", 2) end
+    if #values ~= rows * cols then error("Table size mismatch!", 2) end
 
     --- @class Matrix2d
     local self = {}
 
-    self.values = values or {}
+    self.values = values
     self.rows = rows
     self.cols = cols
 
@@ -195,6 +267,9 @@ function matrix2d.new(values, rows, cols)
     self.add = add
     self.sub = sub
     self.mul = mul
+    self.cross_entropy = cross_entropy
+    self.relu_grad = relu_grad
+    self.softmax_grad = softmax_grad
 
     -- m, n -> m
     self.scale = scale
