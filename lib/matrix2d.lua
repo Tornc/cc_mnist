@@ -127,14 +127,21 @@ function matrix2d.cross_entropy_grad(p, q, grad, do_p, do_q)
     local pv, qv, gv = p.values, q.values, grad.values
     local pgv, qgv = {}, {}
     local log = math.log
-    if do_p then
-        for i = 1, #pv do
-            pgv[i] = -log(qv[i]) * gv[i]
-        end
-    end
-    if do_q then
+    if do_p and do_q then
         for i = 1, #pv do -- All input matrices are of same shape anyway.
+            pgv[i] = -log(qv[i]) * gv[i]
             qgv[i] = -pv[i] / qv[i] * gv[i]
+        end
+    else
+        if do_p then
+            for i = 1, #pv do
+                pgv[i] = -log(qv[i]) * gv[i]
+            end
+        end
+        if do_q then
+            for i = 1, #pv do
+                qgv[i] = -pv[i] / qv[i] * gv[i]
+            end
         end
     end
     return
@@ -210,9 +217,11 @@ local function sum(self)
 end
 
 --- Returns the index with the highest value.
---- @param self Matrix2d
+--- @param self Matrix2d Vector
 --- @return integer
 local function argmax(self)
+    if self.rows ~= 1 and self.cols ~= 1 then error("Not a row/column vector!", 2) end
+
     local mi, sv = 1, self.values
     for i = 1, #sv do
         if sv[i] > sv[mi] then mi = i end
@@ -297,7 +306,6 @@ function matrix2d.new(values, rows, cols)
         __add = add,
         __sub = sub,
         __mul = mul,
-
         __tostring = tostring,
     })
 end

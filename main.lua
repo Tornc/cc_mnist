@@ -1,3 +1,6 @@
+-- https://www.youtube.com/watch?v=hL_n_GljC0I
+-- https://github.com/Magicalbat/videos/blob/main/machine-learning/main.c
+
 local pp = require("cc.pretty").pretty_print --- @type function
 local display = require("lib.display")
 local matrix2d = require("lib.matrix2d")
@@ -65,7 +68,12 @@ end
 -- print(label)
 
 local m1 = matrix2d.new({ 1, 2, 3, 4, 5, 6 }, 2, 3)
-local m2 = m1:copy()
-print(m1)
-m1.values[2] = 0
-print(m1, m2)
+local m2 = matrix2d.new({ 1, 2, 3, 4, 5, 6 }, 2, 3)
+local m3 = matrix2d.fill_rand(2, 3)
+local m4 = matrix2d.new({ 1, 2, 3 }, 3, 1)
+
+-- print(matrix2d.relu_grad(m1, m2))
+
+local a = matrix2d.fill_rand(1, 10000)
+local b = matrix2d.fill_rand(10000, 10000)
+timed(a.mul, {a,b})

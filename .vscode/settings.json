@@ -32,6 +32,7 @@
         "write",
         "read",
         "sleep",
+        "ffi",
         "ship",
         "periphemu"
     ],
