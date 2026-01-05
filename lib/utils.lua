@@ -7,12 +7,13 @@ local utils = {}
 --- We need to do this because some functions take longer than 4 seconds.
 --- @return function
 function utils.yielder()
-    local ly, i = os.epoch("utc"), 0
+    local epoch = os.epoch --- @type function
+    local ly, i = epoch("utc"), 0
     return function()
         i = i + 1
         if i < 1000 then return end
         i = 0
-        if os.epoch("utc") - ly < 4000 then return end
+        if epoch("utc") - ly < 4000 then return end
         os.sleep()
     end
 end
