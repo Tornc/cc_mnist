@@ -1,10 +1,8 @@
 --[[
-    MATRIX MODULE
+    MATRIX MODULE (2d only, no tensors!)
 
     NIH syndrome is bad.
 ]]
-
-local pp = require("cc.pretty").pretty_print --- @type function
 
 local matrix2d = {}
 
@@ -39,7 +37,7 @@ end
 --- @param self Matrix2d
 --- @param m Matrix2d
 --- @return Matrix2d
-local function mul(self, m)
+local function matmul(self, m)
     if self.cols ~= m.rows then error("Column-row mismatch!", 2) end
 
     local result = matrix2d.fill(0, self.rows, m.cols)
@@ -110,7 +108,7 @@ function matrix2d.softmax_grad(input, grad)
             jv[(j - 1) + (i - 1) * size + 1] = sv[i] * (delta - sv[j])
         end
     end
-    return matrix2d.new(jv, size, size):mul(grad)
+    return matrix2d.new(jv, size, size):matmul(grad)
 end
 
 --- @param p Matrix2d
@@ -285,7 +283,7 @@ function matrix2d.new(values, rows, cols)
     -- m, m -> m
     self.add = add
     self.sub = sub
-    self.mul = mul
+    self.matmul = matmul
     self.cross_entropy = cross_entropy
 
     -- m, n -> m
@@ -305,7 +303,7 @@ function matrix2d.new(values, rows, cols)
     return setmetatable(self, { -- dunder methods!
         __add = add,
         __sub = sub,
-        __mul = mul,
+        __mul = matmul,
         __tostring = tostring,
     })
 end
