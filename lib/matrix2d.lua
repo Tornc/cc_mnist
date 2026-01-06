@@ -255,13 +255,16 @@ function matrix2d.fill(value, rows, cols)
     return matrix2d.new(vs, rows, cols)
 end
 
+--- @param lbound number
+--- @param ubound number
 --- @param rows integer
 --- @param cols integer
 --- @return Matrix2d
-function matrix2d.fill_rand(rows, cols)
-    local vs = {}
+function matrix2d.fill_rand(lbound, ubound, rows, cols)
+    local vs, random = {}, math.random
+    local range = ubound - lbound
     for i = 1, rows * cols do
-        vs[i] = math.random()
+        vs[i] = lbound + random() * range
     end
     return matrix2d.new(vs, rows, cols)
 end
