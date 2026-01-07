@@ -312,3 +312,5 @@ function matrix2d.new(values, rows, cols)
 end
 
 return matrix2d
+
+--- @TODO: rename to data, vals is unfortunate naming with model var
