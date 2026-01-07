@@ -10,33 +10,31 @@ local autodiff = {}
 
 --[[ ENUMS, UTILITY, CLASSES ]]
 
---- @TODO: change this to sequential?
 local MV_FLAG = { --- @enum ModelVariableFlag
-    NONE = 0,
+    NONE = 1,
 
-    REQUIRES_GRAD = 1,
-    PARAMETER = 2,
+    REQUIRES_GRAD = 2,
+    PARAMETER = 3,
     INPUT = 4,
-    OUTPUT = 8,
-    DESIRED_OUTPUT = 16,
-    COST = 32,
+    OUTPUT = 5,
+    DESIRED_OUTPUT = 6,
+    COST = 7,
 }
---- @TODO: change this to 1-indexed?
 local MV_OP = { --- @enum ModelVariableOperation
-    NULL = 0,
-    CREATE = 1,
+    NULL = 1,
+    CREATE = 2,
 
-    _UNARY_START = 2,
+    _UNARY_START = 3,
 
-    RELU = 3,
-    SOFTMAX = 4,
+    RELU = 4,
+    SOFTMAX = 5,
 
-    _BINARY_START = 5,
+    _BINARY_START = 6,
 
-    ADD = 6,
-    SUB = 7,
-    MATMUL = 8,
-    CROSS_ENTROPY = 9,
+    ADD = 7,
+    SUB = 8,
+    MATMUL = 9,
+    CROSS_ENTROPY = 10,
 }
 
 local MV_MAX_INPUTS = 2
@@ -48,7 +46,7 @@ end
 
 --- @TODO: make some of these params optional.
 --- @param index integer
---- @param flags table<ModelVariableFlag, boolean?>
+--- @param flags table<ModelVariableFlag, boolean>
 --- @param val Matrix2d
 --- @param grad Matrix2d
 --- @param op ModelVariableOperation
@@ -117,7 +115,7 @@ end
 --- @param model ModelContext
 --- @param rows integer
 --- @param cols integer
---- @param flags table<ModelVariableFlag, boolean?>
+--- @param flags table<ModelVariableFlag, boolean>
 --- @return ModelVariable
 local function mv_create(model, rows, cols, flags)
     return error("Not implemented!", 2)
@@ -127,7 +125,7 @@ end
 --- @param input ModelVariable
 --- @param rows integer
 --- @param cols integer
---- @param flags table<ModelVariableFlag, boolean?>
+--- @param flags table<ModelVariableFlag, boolean>
 --- @param op ModelVariableOperation
 --- @return ModelVariable
 local function _mv_unary_impl(model, input, rows, cols, flags, op)
@@ -139,7 +137,7 @@ end
 --- @param b ModelVariable
 --- @param rows integer
 --- @param cols integer
---- @param flags table<ModelVariableFlag, boolean?>
+--- @param flags table<ModelVariableFlag, boolean>
 --- @param op ModelVariableOperation
 --- @return ModelVariable
 local function _mv_binary_impl(model, a, b, rows, cols, flags, op)
@@ -148,7 +146,7 @@ end
 
 --- @param model ModelContext
 --- @param input ModelVariable
---- @param flags table<ModelVariableFlag, boolean?>
+--- @param flags table<ModelVariableFlag, boolean>
 --- @return ModelVariable
 local function mv_relu(model, input, flags)
     return error("Not implemented!", 2)
@@ -156,7 +154,7 @@ end
 
 --- @param model ModelContext
 --- @param input ModelVariable
---- @param flags table<ModelVariableFlag, boolean?>
+--- @param flags table<ModelVariableFlag, boolean>
 --- @return ModelVariable
 local function mv_softmax(model, input, flags)
     return error("Not implemented!", 2)
@@ -194,11 +192,42 @@ local function mv_cross_entropy(model, p, q, flags)
     return error("Not implemented!", 2)
 end
 
+--- @TODO: what if we made a class and put these functions inside?
+--[[ MODEL PROGRAM FUNCTIONS ]]
+
 --- @param model ModelContext
 --- @param out_var ModelVariable
 --- @return table<ModelVariable>
 local function model_program_create(model, out_var)
     return error("Not implemented!", 2)
 end
+
+local function model_prog_compute(prog)
+    return error("Not implemented!", 2)
+end
+
+local function model_prog_compute_grads(prog)
+    return error("Not implemented!", 2)
+end
+
+--- @TODO: ?????????????????????
+--[[ MODEL CONTEXT FUNCTIONS ]]
+
+local function model_create()
+
+end
+
+local function model_compile()
+
+end
+
+local function model_feed_forward()
+
+end
+
+local function model_train()
+
+end
+
 
 return autodiff

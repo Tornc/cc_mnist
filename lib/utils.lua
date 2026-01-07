@@ -5,16 +5,19 @@
 local utils = {}
 
 --- We need to do this because some functions take longer than 4 seconds.
+--- @param check_interval integer amount of times yielder is called before checking the time.
+--- @param yield_threshold integer in milliseconds.
 --- @return function
-function utils.yielder()
+function utils.yielder(check_interval, yield_threshold)
+    local ci, yt = check_interval, yield_threshold
     local epoch = os.epoch --- @type function
     local ly, i = epoch("utc"), 0
     return function()
         i = i + 1
-        if i < 1000 then return end
+        if i < ci then return end
         i = 0
-        if epoch("utc") - ly < 4000 then return end
-        os.sleep()
+        if epoch("utc") - ly < yt then return end
+        os.sleep() -- Not sure if localising this is beneficial.
     end
 end
 

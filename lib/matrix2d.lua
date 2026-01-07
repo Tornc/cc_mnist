@@ -13,7 +13,7 @@ local function add(self, m)
     if self.rows ~= m.rows then error("Row mismatch!", 2) end
     if self.cols ~= m.cols then error("Column mismatch!", 2) end
 
-    local nv, sv, mv = {}, self.values, m.values
+    local nv, sv, mv = {}, self.vals, m.vals
     for i = 1, #sv do
         nv[i] = sv[i] + mv[i]
     end
@@ -27,7 +27,7 @@ local function sub(self, m)
     if self.rows ~= m.rows then error("Row mismatch!", 2) end
     if self.cols ~= m.cols then error("Column mismatch!", 2) end
 
-    local nv, sv, mv = {}, self.values, m.values
+    local nv, sv, mv = {}, self.vals, m.vals
     for i = 1, #sv do
         nv[i] = sv[i] - mv[i]
     end
@@ -41,9 +41,9 @@ local function matmul(self, m)
     if self.cols ~= m.rows then error("Column-row mismatch!", 2) end
 
     local result = matrix2d.fill(0, self.rows, m.cols)
-    local rv, rc = result.values, result.cols
-    local sv, sc = self.values, self.cols
-    local mv, mc = m.values, m.cols
+    local rv, rc = result.vals, result.cols
+    local sv, sc = self.vals, self.cols
+    local mv, mc = m.vals, m.cols
     for i = 1, result.rows do
         local ior = (i - 1) * rc -- Precompute offsets to reduce computations.
         local ios = (i - 1) * sc
@@ -65,7 +65,7 @@ local function cross_entropy(self, m)
     if self.rows ~= m.rows then error("Row mismatch!", 2) end
     if self.cols ~= m.cols then error("Column mismatch!", 2) end
 
-    local nv, sv, mv = {}, self.values, m.values
+    local nv, sv, mv = {}, self.vals, m.vals
     local log = math.log
     for i = 1, #sv do
         nv[i] = sv[i] == 0 and 0 or sv[i] * -log(mv[i])
@@ -87,7 +87,7 @@ function matrix2d.relu_grad(input, grad)
     if input.rows ~= grad.rows then error("Row mismatch!", 2) end
     if input.cols ~= grad.cols then error("Column mismatch!", 2) end
 
-    local nv, sv, mv = {}, input.values, grad.values
+    local nv, sv, mv = {}, input.vals, grad.vals
     for i = 1, #sv do
         nv[i] = sv[i] > 0 and mv[i] or 0
     end
@@ -100,7 +100,7 @@ end
 function matrix2d.softmax_grad(input, grad)
     if input.rows ~= 1 and input.cols ~= 1 then error("Not a row/column vector!", 2) end
 
-    local jv, sv = {}, input.values
+    local jv, sv = {}, input.vals
     local size = math.max(input.rows, input.cols)
     for i = 1, size do
         for j = 1, size do
@@ -122,7 +122,7 @@ function matrix2d.cross_entropy_grad(p, q, grad, do_p, do_q)
     if p.rows ~= q.rows or p.rows ~= grad.rows then error("Row mismatch!", 2) end
     if p.cols ~= q.cols or p.cols ~= grad.cols then error("Column mismatch!", 2) end
 
-    local pv, qv, gv = p.values, q.values, grad.values
+    local pv, qv, gv = p.vals, q.vals, grad.vals
     local pgv, qgv = {}, {}
     local log = math.log
     if do_p and do_q then
@@ -151,7 +151,7 @@ end
 --- @param n number
 --- @return Matrix2d
 local function scale(self, n)
-    local nv, sv = {}, self.values
+    local nv, sv = {}, self.vals
     for i = 1, #sv do
         nv[i] = sv[i] * n
     end
@@ -161,7 +161,7 @@ end
 --- @param self Matrix2d
 --- @return Matrix2d
 local function copy(self)
-    local nv, sv = {}, self.values
+    local nv, sv = {}, self.vals
     for i = 1, #sv do
         nv[i] = sv[i]
     end
@@ -171,7 +171,7 @@ end
 --- @param self Matrix2d
 --- @return Matrix2d
 local function transpose(self)
-    local nv, sv, r, c = {}, self.values, self.rows, self.cols
+    local nv, sv, r, c = {}, self.vals, self.rows, self.cols
     local floor = math.floor
     for i = 1, #sv do
         local x = floor((i - 1) / c)
@@ -184,7 +184,7 @@ end
 --- @param self Matrix2d
 --- @return Matrix2d
 local function relu(self)
-    local nv, sv = {}, self.values
+    local nv, sv = {}, self.vals
     local max = math.max
     for i = 1, #sv do
         nv[i] = max(0, sv[i])
@@ -195,7 +195,7 @@ end
 --- @param self Matrix2d
 --- @return Matrix2d
 local function softmax(self)
-    local nv, sv = {}, self.values
+    local nv, sv = {}, self.vals
     local sum, exp = 0, math.exp
     for i = 1, #sv do
         nv[i] = exp(sv[i])
@@ -207,7 +207,7 @@ end
 --- @param self Matrix2d
 --- @return number
 local function sum(self)
-    local _sum, sv = 0, self.values
+    local _sum, sv = 0, self.vals
     for i = 1, #sv do
         _sum = _sum + sv[i]
     end
@@ -220,7 +220,7 @@ end
 local function argmax(self)
     if self.rows ~= 1 and self.cols ~= 1 then error("Not a row/column vector!", 2) end
 
-    local mi, sv = 1, self.values
+    local mi, sv = 1, self.vals
     for i = 1, #sv do
         if sv[i] > sv[mi] then mi = i end
     end
@@ -231,7 +231,7 @@ end
 --- @return string
 local function tostring(self)
     local str = ""
-    local sv, c, r = self.values, self.cols, self.rows
+    local sv, c, r = self.vals, self.cols, self.rows
     local off = 0
     for _ = 1, r do
         for x = 1, c do
@@ -279,8 +279,8 @@ function matrix2d.new(values, rows, cols)
     --- @class Matrix2d
     local self = {}
 
-    self.values = values
-    self.rows = rows
+    self.vals = values
+    self.rows = rows -- Row-major btw.
     self.cols = cols
 
     -- m, m -> m
