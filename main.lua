@@ -2,7 +2,7 @@
 -- https://github.com/Magicalbat/videos/blob/main/machine-learning/main.c
 
 if not periphemu then print("You're inside of Minecraft, aren't you?") end
-if not ffi then print("For the love of god, please use LuaJIT.") end
+if not ffi then print("Please consider using LuaJIT.") end
 
 local pp = require("cc.pretty").pretty_print --- @type function
 local autodiff = require("lib.autodiff")
@@ -105,6 +105,7 @@ end
 local ytr, xtr = timed(
     load_csv, { shell.resolve("mnist_train.csv"), 100 }, "Train .csv -> table"
 )
+--- @TODO: we need to shuffle, but; watch out for the fact that y and x are separate though.
 local y_train, x_train = timed(
     table_to_matrix, { ytr, xtr }, "Train table -> matrix"
 )
@@ -117,3 +118,6 @@ local y_train, x_train = timed(
 
 local n = math.random(y_train.rows)
 display_number(xtr[n], table.concat(get_row(y_train, n), " ") .. " -> " .. ytr[n])
+
+local tst = autodiff.model_context()
+-- tst.

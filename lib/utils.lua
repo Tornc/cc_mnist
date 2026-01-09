@@ -10,14 +10,16 @@ local utils = {}
 --- @return function
 function utils.yielder(check_interval, yield_threshold)
     local ci, yt = check_interval, yield_threshold
-    local epoch = os.epoch --- @type function
+    --- @type function, function, function
+    local epoch, queueEvent, pullEvent = os.epoch, os.queueEvent, os.pullEvent
     local ly, i = epoch("utc"), 0
     return function()
         i = i + 1
         if i < ci then return end
         i = 0
         if epoch("utc") - ly < yt then return end
-        os.sleep() -- Not sure if localising this is beneficial.
+        queueEvent("yield")
+        pullEvent("yield")
     end
 end
 

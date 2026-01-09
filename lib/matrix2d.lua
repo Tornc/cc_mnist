@@ -269,6 +269,13 @@ function matrix2d.fill_rand(lbound, ubound, rows, cols)
     return matrix2d.new(vs, rows, cols)
 end
 
+local metatable = { -- dunder methods!
+    __add = add,
+    __sub = sub,
+    __mul = matmul,
+    __tostring = tostring,
+}
+
 --- @param values table
 --- @param rows integer
 --- @param cols integer
@@ -303,12 +310,7 @@ function matrix2d.new(values, rows, cols)
     self.argmax = argmax
     self.tostring = tostring
 
-    return setmetatable(self, { -- dunder methods!
-        __add = add,
-        __sub = sub,
-        __mul = matmul,
-        __tostring = tostring,
-    })
+    return setmetatable(self, metatable)
 end
 
 return matrix2d
