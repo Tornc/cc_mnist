@@ -12,7 +12,10 @@ local utils = require("lib.utils")
 
 local auto_yield, timed = utils.yielder(1000, 4000), utils.timed
 
---- @param image table<integer>
+local TRAINING_PATH = shell.resolve("./dataset/mnist_train.csv")
+local TEST_PATH = shell.resolve("./dataset/mnist_test.csv")
+
+--- @param image table<number> 0-1
 --- @param label string
 local function display_number(image, label)
     periphemu.create("front", "monitor")
@@ -30,11 +33,11 @@ local function display_number(image, label)
     local px = cv.pixels
     for i = 1, #image do
         -- This is the lazy way to do it.
-        if image[i] > 192 then
+        if image[i] > 0.75 then
             px[i] = WHITE
-        elseif image[i] > 128 then
+        elseif image[i] > 0.5 then
             px[i] = LIGHT_GREY
-        elseif image[i] > 64 then
+        elseif image[i] > 0.25 then
             px[i] = GREY
         end
     end
@@ -72,8 +75,8 @@ end
 
 --- @param y_raw table<integer>
 --- @param x_raw table<table<integer>>
---- @return Matrix2d y_matrix One-hot encoded
---- @return Matrix2d x_matrix A single matrix where 1 row = 1 image
+--- @return Matrix2d y_matrix One-hot encoded. Shape: n, 10
+--- @return Matrix2d x_matrix Normalised to 0-1. Shape: n, 784
 local function table_to_matrix(y_raw, x_raw)
     local y_mat = matrix2d.fill(0, #y_raw, 10) -- Yeah, hardcode the 10 different digits.
     local yv = y_mat.vals
@@ -84,11 +87,12 @@ local function table_to_matrix(y_raw, x_raw)
 
     local xv = {}
     local xr, xc = #x_raw, #x_raw[1]
+    local inv_255 = 1 / 255
     local idx = 1
     for i = 1, xr do
         local tbl = x_raw[i]
         for j = 1, xc do
-            xv[idx] = tbl[j]
+            xv[idx] = tbl[j] * inv_255
             idx = idx + 1
         end
     end
@@ -96,6 +100,7 @@ local function table_to_matrix(y_raw, x_raw)
 end
 
 --- @param m Matrix2d
+--- @param n integer row
 --- @return table<number> row
 local function get_row(m, n)
     local base = (n - 1) * m.cols
@@ -103,21 +108,18 @@ local function get_row(m, n)
 end
 
 local ytr, xtr = timed(
-    load_csv, { shell.resolve("mnist_train.csv"), 100 }, "Train .csv -> table"
+    load_csv, { TRAINING_PATH, 100 }, "Train .csv -> table"
 )
 --- @TODO: we need to shuffle, but; watch out for the fact that y and x are separate though.
 local y_train, x_train = timed(
     table_to_matrix, { ytr, xtr }, "Train table -> matrix"
 )
--- local yte, xte = timed(
---     load_csv, { shell.resolve("mnist_test.csv"), 1 }, "Test .csv -> table"
--- )
--- local y_test, x_test = timed(
---     table_to_matrix, { yte, xte }, "Test table -> matrix"
--- )
+local yte, xte = timed(
+    load_csv, { TEST_PATH, 1 }, "Test .csv -> table"
+)
+local y_test, x_test = timed(
+    table_to_matrix, { yte, xte }, "Test table -> matrix"
+)
 
 local n = math.random(y_train.rows)
-display_number(xtr[n], table.concat(get_row(y_train, n), " ") .. " -> " .. ytr[n])
-
-local tst = autodiff.model_context()
--- tst.
+display_number(get_row(x_train, n), table.concat(get_row(y_train, n), " "))
