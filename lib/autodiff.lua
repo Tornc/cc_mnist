@@ -36,7 +36,7 @@ local MV_MAX_INPUTS = 2
 
 --- @param op ModelVariableOperation
 --- @return integer
-local MV_NUM_INPUTS = function(op)
+local function MV_NUM_INPUTS(op)
     if op < MV_OP._UNARY_START then return 0 end
     if op < MV_OP._BINARY_START then return 1 end
     return 2
@@ -44,19 +44,18 @@ end
 
 local btest, bor = bit32.btest, bit32.bor
 
---- @param index integer
 --- @param flags integer
 --- @param val Matrix2d
 --- @param grad Matrix2d?
 --- @param op ModelVariableOperation
 --- @param inputs table<ModelVariable>  0-2 model variables
 --- @return ModelVariable
-local function model_var(index, flags, val, grad, op, inputs)
+local function model_var(flags, val, grad, op, inputs)
     if #inputs > MV_MAX_INPUTS then error("Too many inputs!", 2) end
+    if #inputs ~= MV_NUM_INPUTS(op) then error("Operation-input amount mismatch!") end
 
     --- @class ModelVariable
     local self = {}
-    self.index = index
     self.flags = flags
     self.val = val
     self.grad = grad
@@ -91,7 +90,6 @@ end
 function autodiff.model_context()
     --- @class ModelContext
     local self = {}
-    self.num_vars = 0         --- @type integer
     self.input = nil          --- @type ModelVariable?
     self.output = nil         --- @type ModelVariable?
     self.desired_output = nil --- @type ModelVariable?
@@ -107,16 +105,13 @@ function autodiff.model_context()
     --- @return ModelVariable
     function self.mv_create(rows, cols, flags)
         local out = model_var(
-            self.num_vars,
             flags,
             matrix2d.fill(0, rows, cols),
             btest(flags, MV_FLAG.REQUIRES_GRAD) and matrix2d.fill(0, rows, cols) or nil,
             MV_OP.CREATE,
             {}
         )
-        self.num_vars = self.num_vars + 1
 
-        --- @TODO: not really clean ehhh
         if btest(flags, MV_FLAG.INPUT) then
             if self.input then error("Input already set!", 2) end
             self.input = out
@@ -226,22 +221,138 @@ function autodiff.model_context()
     --- @param out_var ModelVariable
     --- @return table<ModelVariable>
     local function model_prog_create(out_var)
-        error("Not implemented!", 2)
-        return {}
+        local visited = {} --- @type table<ModelVariable, boolean|nil>
+        local stack = {}   --- @type table<ModelVariable>
+        local out = {}     --- @type table<ModelVariable>
+
+        local insert, remove = table.insert, table.remove
+
+        insert(stack, out_var)
+        while #stack > 0 do
+            local cur = remove(stack) --- @type ModelVariable
+            if visited[cur] then
+                insert(out, cur); goto continue
+            end
+            visited[cur] = true
+            insert(stack, cur)
+            for i = 1, #cur.inputs do
+                local input = cur.inputs[i]
+                if visited[input] then goto continue end
+
+                error("Not implemented!", 2)
+
+                --- @TODO: iterate over stack, but note that #len changes while we iterate
+                --- and delete entries
+                -- for j = 1, #stack do
+                --     if stack[j] == input then
+
+                --     end
+                -- end
+                insert(stack, input)
+                ::continue::
+            end
+            ::continue::
+        end
+
+        return out
     end
 
     --- Forward pass
     --- @param prog table<ModelVariable>
     local function model_prog_compute(prog)
-        error("Not implemented!", 2)
-        return
+        local unpack = table.unpack
+        for i = 1, #prog do
+            local cur = prog[i]             --- @type ModelVariable
+            -- Note that they can be nil, but MV_OP check will prevent nil access.
+            local a, b = unpack(cur.inputs) --- @type ModelVariable, ModelVariable
+            local co = cur.op
+            --- @NOTE: Tried using a table out of switch-statement nostalgia. Didn't work!
+            if co == MV_OP.RELU then
+                cur.val = a.val:relu()
+            elseif co == MV_OP.SOFTMAX then
+                cur.val = a.val:softmax()
+            elseif co == MV_OP.ADD then
+                cur.val = a.val:add(b.val)
+            elseif co == MV_OP.SUB then
+                cur.val = a.val:sub(b.val)
+            elseif co == MV_OP.MATMUL then
+                cur.val = a.val:matmul(b.val)
+            elseif co == MV_OP.CROSS_ENTROPY then
+                cur.val = a.val:cross_entropy(b.val)
+            end
+        end
     end
 
     --- Backward pass
     --- @param prog table<ModelVariable>
     local function model_prog_compute_grads(prog)
-        error("Not implemented!", 2)
-        return
+        for i = 1, #prog do
+            local cur = prog[i] --- @type ModelVariable
+            if btest(cur.flags, MV_FLAG.REQUIRES_GRAD) == false then goto continue end
+            if btest(cur.flags, MV_FLAG.PARAMETER) then goto continue end
+            cur.grad = matrix2d.fill(0, cur.grad.rows, cur.grad.cols) -- Clear
+            ::continue::
+        end
+
+        local last_var = prog[#prog]
+        last_var.grad = matrix2d.fill(1, last_var.grad.rows, last_var.grad.cols)
+
+        local unpack = table.unpack
+        for i = #prog, 1, -1 do
+            local cur = prog[i] --- @type ModelVariable
+
+            if btest(cur.flags, MV_FLAG.REQUIRES_GRAD) == false then goto continue end
+
+            local a, b = unpack(cur.inputs) --- @type ModelVariable, ModelVariable
+            local co = cur.op
+            local num_inputs = MV_NUM_INPUTS(co)
+            if num_inputs == 1 and
+                btest(a.flags, MV_FLAG.REQUIRES_GRAD) == false
+            then
+                goto continue
+            end
+            if num_inputs == 2 and
+                btest(a.flags, MV_FLAG.REQUIRES_GRAD) == false and
+                btest(b.flags, MV_FLAG.REQUIRES_GRAD) == false
+            then
+                goto continue
+            end
+
+            if co == MV_OP.RELU then
+                a.grad = a.grad + matrix2d.relu_grad(a.val, cur.grad)
+            elseif co == MV_OP.SOFTMAX then
+                a.grad = matrix2d.softmax_grad_vector(cur.val, cur.grad)
+            elseif co == MV_OP.ADD then
+                if btest(a.flags, MV_FLAG.REQUIRES_GRAD) then
+                    a.grad = a.grad + cur.grad
+                end
+                if btest(b.flags, MV_FLAG.REQUIRES_GRAD) then
+                    b.grad = b.grad + cur.grad
+                end
+            elseif co == MV_OP.SUB then
+                if btest(a.flags, MV_FLAG.REQUIRES_GRAD) then
+                    a.grad = a.grad + cur.grad -- Intentional
+                end
+                if btest(b.flags, MV_FLAG.REQUIRES_GRAD) then
+                    b.grad = b.grad - cur.grad
+                end
+            elseif co == MV_OP.MATMUL then
+                if btest(a.flags, MV_FLAG.REQUIRES_GRAD) then
+                    a.grad = a.grad + cur.grad * b.val:transpose()
+                end
+                if btest(b.flags, MV_FLAG.REQUIRES_GRAD) then
+                    b.grad = b.grad + a.val:transpose() * cur.grad
+                end
+            elseif co == MV_OP.CROSS_ENTROPY then
+                local p, q = a, b
+                local pgn, pqn = matrix2d.cross_entropy_grad(
+                    p.val, q.val, cur.grad, true, true
+                )
+                p.grad = p.grad + pgn
+                q.grad = q.grad + pqn
+            end
+            ::continue::
+        end
     end
 
     --[[ MODEL INTERFACE or something ]]
@@ -260,6 +371,7 @@ function autodiff.model_context()
     --- @param training_desc ModelTrainingDescription
     function self.model_train(training_desc)
         error("Not implemented!", 2)
+        -- model_prog_compute_grads()
     end
 
     return self

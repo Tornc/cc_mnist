@@ -87,28 +87,54 @@ function matrix2d.relu_grad(input, grad)
     if input.rows ~= grad.rows then error("Row mismatch!", 2) end
     if input.cols ~= grad.cols then error("Column mismatch!", 2) end
 
-    local nv, sv, mv = {}, input.vals, grad.vals
-    for i = 1, #sv do
-        nv[i] = sv[i] > 0 and mv[i] or 0
+    local nv, iv, mv = {}, input.vals, grad.vals
+    for i = 1, #iv do
+        nv[i] = iv[i] > 0 and mv[i] or 0
     end
     return matrix2d.new(nv, input.rows, input.cols)
 end
 
---- @param input Matrix2d Softmax out
+--- @param input Matrix2d Softmax output
 --- @param grad Matrix2d Gradient
 --- @return Matrix2d output Jacobian multiplied by the gradient
 function matrix2d.softmax_grad(input, grad)
     if input.rows ~= 1 and input.cols ~= 1 then error("Not a row/column vector!", 2) end
 
-    local jv, sv = {}, input.vals
+    local jv, iv = {}, input.vals
     local size = math.max(input.rows, input.cols)
     for i = 1, size do
         for j = 1, size do
             local delta = (i == j) and 1 or 0
-            jv[(j - 1) + (i - 1) * size + 1] = sv[i] * (delta - sv[j])
+            jv[(j - 1) + (i - 1) * size + 1] = iv[i] * (delta - iv[j])
         end
     end
     return matrix2d.new(jv, size, size):matmul(grad)
+end
+
+--- This is O(n) compared to `softmax_grad`'s O(n^2), please use this instead.
+--- @param input Matrix2d Softmax output vector
+--- @param grad Matrix2d Gradient vector
+--- @return Matrix2d
+function matrix2d.softmax_grad_vector(input, grad)
+    if input.rows ~= 1 and input.cols ~= 1 then error("Not a row/column vector!", 2) end
+    if grad.rows ~= 1 and grad.cols ~= 1 then error("Not a row/column vector!", 2) end
+    if input.rows ~= grad.rows then error("Row mismatch!", 2) end
+    if input.cols ~= grad.cols then error("Column mismatch!", 2) end
+
+    local iv, gv = input.vals, grad.vals
+    local size = math.max(input.rows, input.cols)
+
+    local dot = 0
+    for i = 1, size do
+        dot = dot + iv[i] * gv[i]
+    end
+
+    local out = {}
+    for i = 1, size do
+        out[i] = iv[i] * (gv[i] - dot)
+    end
+
+    return matrix2d.new(out, input.rows, input.cols)
 end
 
 --- @param p Matrix2d
@@ -195,6 +221,8 @@ end
 --- @param self Matrix2d
 --- @return Matrix2d
 local function softmax(self)
+    if self.rows ~= 1 and self.cols ~= 1 then error("Not a row/column vector!", 2) end
+
     local nv, sv = {}, self.vals
     local sum, exp = 0, math.exp
     for i = 1, #sv do
@@ -207,6 +235,8 @@ end
 --- @param self Matrix2d
 --- @return number
 local function sum(self)
+    if self.rows ~= 1 and self.cols ~= 1 then error("Not a row/column vector!", 2) end
+
     local _sum, sv = 0, self.vals
     for i = 1, #sv do
         _sum = _sum + sv[i]
@@ -243,6 +273,26 @@ local function tostring(self)
     return str
 end
 
+--- @param self Matrix2d
+--- @param m Matrix2d
+--- @param tol number? 1e-6 by default.
+--- @return boolean
+local function equal(self, m, tol)
+    if self.rows ~= m.rows then return false end
+    if self.cols ~= m.cols then return false end
+    if #self.vals ~= #m.vals then return false end
+
+    tol = tol or 1e-6
+
+    local sv, mv = self.vals, m.vals
+    local abs = math.abs
+    for i = 1, #sv do
+        if abs(sv[i] - mv[i]) > tol then return false end
+    end
+
+    return true
+end
+
 --- @param value number
 --- @param rows integer
 --- @param cols integer
@@ -274,6 +324,7 @@ local metatable = { -- dunder methods!
     __sub = sub,
     __mul = matmul,
     __tostring = tostring,
+    __eq = equal,
 }
 
 --- @param values table
@@ -310,9 +361,10 @@ function matrix2d.new(values, rows, cols)
     self.argmax = argmax
     self.tostring = tostring
 
+    -- m, m, n? -> b
+    self.equal = equal
+
     return setmetatable(self, metatable)
 end
 
 return matrix2d
-
---- @TODO: rename to data, vals is unfortunate naming with model var

@@ -1,6 +1,3 @@
--- https://www.youtube.com/watch?v=hL_n_GljC0I
--- https://github.com/Magicalbat/videos/blob/main/machine-learning/main.c
-
 if not periphemu then print("You're inside of Minecraft, aren't you?") end
 if not ffi then print("Please consider using LuaJIT.") end
 
@@ -107,19 +104,47 @@ local function get_row(m, n)
     return { table.unpack(m.vals, base + 1, base + m.cols) }
 end
 
-local ytr, xtr = timed(
-    load_csv, { TRAINING_PATH, 100 }, "Train .csv -> table"
-)
---- @TODO: we need to shuffle, but; watch out for the fact that y and x are separate though.
-local y_train, x_train = timed(
-    table_to_matrix, { ytr, xtr }, "Train table -> matrix"
-)
-local yte, xte = timed(
-    load_csv, { TEST_PATH, 1 }, "Test .csv -> table"
-)
-local y_test, x_test = timed(
-    table_to_matrix, { yte, xte }, "Test table -> matrix"
-)
+local function main()
+    local ytr, xtr = timed(
+        load_csv, { TRAINING_PATH, 100 }, "Train .csv -> table"
+    )
+    --- @TODO: we need to shuffle, but; watch out for the fact that y and x are separate though.
+    local y_train, x_train = timed(
+        table_to_matrix, { ytr, xtr }, "Train table -> matrix"
+    )
+    local yte, xte = timed(
+        load_csv, { TEST_PATH, 1 }, "Test .csv -> table"
+    )
+    local y_test, x_test = timed(
+        table_to_matrix, { yte, xte }, "Test table -> matrix"
+    )
 
-local n = math.random(y_train.rows)
-display_number(get_row(x_train, n), table.concat(get_row(y_train, n), " "))
+    local n = math.random(y_train.rows)
+    display_number(get_row(x_train, n), table.concat(get_row(y_train, n), " "))
+end
+
+-- main()
+
+-- local mc = autodiff.model_context()
+
+-- local a = mc.mv_create(1, 1, 1)
+-- local b = mc.mv_create(1, 1, 2)
+
+-- local params = {"naam"}
+
+-- local function foo1()
+--     print("hi!")
+-- end
+-- local function foo2(n)
+--     print("Hello", n)
+-- end
+
+-- foo2(table.unpack(params))
+
+-- local smo = matrix2d.fill_rand(-0.5, 0.5, 10000, 1):softmax()
+-- local grd = matrix2d.fill_rand(-0.5, 0.5, 10000, 1)
+
+-- local a = timed(matrix2d.softmax_grad,{smo, grd}, "v1")
+-- local b = timed(matrix2d.softmax_grad_vector,{smo, grd}, "v2")
+
+-- print(a:equal(b, 1e-6))
