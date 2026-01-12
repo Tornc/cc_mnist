@@ -153,7 +153,7 @@ end
 
 local function main()
     local ytr, xtr = timed(
-        load_csv, { TRAINING_PATH, nil }, "Train .csv -> table"
+        load_csv, { TRAINING_PATH, 100 }, "Train .csv -> table"
     )
     local yte, xte = timed(
         load_csv, { TEST_PATH, nil }, "Test .csv -> table"
@@ -172,6 +172,11 @@ local function main()
 
     local n = math.random(y_test.rows)
 
+    local y_si = (n - 1) * y_test.cols + 1
+    local y_ei = y_si + y_test.cols - 1
+    local label = {}
+    copy_range(label, y_test.vals, y_si, y_ei)
+
     -- Pre-training output
     local x_si = (n - 1) * x_test.cols + 1
     local x_ei = x_si + x_test.cols - 1
@@ -179,21 +184,12 @@ local function main()
 
     model.model_feed_forward()
 
-    local y_si = (n - 1) * y_test.cols + 1
-    local y_ei = y_si + y_test.cols - 1
-    local label = {}
-    copy_range(label, y_test.vals, y_si, y_ei)
-
     local pred_pre = model.output.val:copy()
     display_number(model.input.val.vals, label, pred_pre.vals)
 
-    local t1 = os.epoch("utc")
-    model.model_train(autodiff.model_training_desc(
+    timed(model.model_train, { autodiff.model_training_desc(
         x_train, y_train, x_test, y_test, 1, 50, 0.03
-    ))
-    local t2 = os.epoch("utc")
-
-    print("Training took: " .. (t2 - t1) .. "ms")
+    ) }, "Training")
 
     -- Post training output
     copy_range(model.input.val.vals, x_test.vals, x_si, x_ei)
