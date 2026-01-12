@@ -24,4 +24,5 @@ Explanation of the 4 rows:
 - [ ] Enable state loading
 - [ ] Test the performance of pregenerating hard-coded matrix math functions for specific sizes and save it to disk to re-use
 - [ ] Optimise more
-- [ ] Make it work with CraftOS/inside Minecraft (yield-spam)
+- [x] Make it work with CraftOS
+- [ ] Make it work inside Minecraft (yield-spam pt.2)
