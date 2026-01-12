@@ -9,7 +9,7 @@ All of the ML-related code is based on Magicalbat's [**youtube**](https://www.yo
 
 Explanation of the 4 rows:
 - D is what digit it is.
-- L id what digit it is, but one-hot encoded. It lines up with D (column-wise).
+- L is what digit it is, but one-hot encoded. It lines up with D (column-wise).
 - B is what the model predicts before the training.
 - A is what the model predicts after the training.
 
