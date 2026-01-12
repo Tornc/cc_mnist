@@ -169,20 +169,21 @@ local function main()
     local model = autodiff.model_context()
     create_mnist_model(model)
     model.model_compile()
-    model.model_feed_forward()
 
     local n = math.random(y_test.rows)
 
+    -- Pre-training output
     local x_si = (n - 1) * x_test.cols + 1
     local x_ei = x_si + x_test.cols - 1
     copy_range(model.input.val.vals, x_test.vals, x_si, x_ei)
+
+    model.model_feed_forward()
 
     local y_si = (n - 1) * y_test.cols + 1
     local y_ei = y_si + y_test.cols - 1
     local label = {}
     copy_range(label, y_test.vals, y_si, y_ei)
 
-    -- Pre-training output
     local pred_pre = model.output.val:copy()
     display_number(model.input.val.vals, label, pred_pre.vals)
 
@@ -192,9 +193,12 @@ local function main()
     ))
     local t2 = os.epoch("utc")
 
-    print("Training took: " .. (t2-t1) .. "ms")
+    print("Training took: " .. (t2 - t1) .. "ms")
 
     -- Post training output
+    copy_range(model.input.val.vals, x_test.vals, x_si, x_ei)
+    model.model_feed_forward()
+
     local pred_post = model.output.val:copy()
     display_number(model.input.val.vals, label, pred_pre.vals, pred_post.vals)
 end
