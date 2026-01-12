@@ -15,7 +15,7 @@ Explanation of the 4 rows:
 
 ![terminal](./docs/terminal.png)
 
-The training took ~7 minutes on regular CraftOS. With CraftOS-PC Accelerated, it takes ~20 seconds. LuaJIT is amazing.
+1 epoch took ~7 minutes on regular CraftOS. With CraftOS-PC Accelerated, it takes ~20 seconds. LuaJIT is amazing.
 
 ### TODO
 - [x] Finish the damn thing
