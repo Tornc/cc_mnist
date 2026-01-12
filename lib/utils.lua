@@ -34,4 +34,17 @@ function utils.timed(fn, args, desc)
     return table.unpack(results)
 end
 
+--- Poor man's memcpy. This is in-place!
+--- @param dst table Table to be modified (filled from 1 to ei-si+1)
+--- @param src table
+--- @param si integer Start index
+--- @param ei integer End index
+function utils.copy_range(dst, src, si, ei)
+    local idx = 1
+    for i = si, ei do
+        dst[idx] = src[i]
+        idx = idx + 1
+    end
+end
+
 return utils

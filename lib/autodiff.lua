@@ -4,21 +4,24 @@
     This is the black magic shit.
 ]]
 
+local pp = require("cc.pretty").pretty_print --- @type function
 local matrix2d = require("lib.matrix2d")
+local utils = require("lib.utils")
 
 local autodiff = {}
 
 --[[ ENUMS, UTILITY, CLASSES ]]
 
-local MV_FLAG = { --- @enum ModelVariableFlag
-    NONE           = bit32.lshift(0, 0),
-    REQUIRES_GRAD  = bit32.lshift(1, 0),
+local MV_FLAG = {       --- @enum ModelVariableFlag
+    NONE           = 0, -- bit32.lshift(0, 0,
+    REQUIRES_GRAD  = 1, -- bit32.lshift(1, 0)
     PARAMETER      = bit32.lshift(1, 1),
     INPUT          = bit32.lshift(1, 2),
     OUTPUT         = bit32.lshift(1, 3),
     DESIRED_OUTPUT = bit32.lshift(1, 4),
     COST           = bit32.lshift(1, 5),
 }
+autodiff.MV_FLAG = MV_FLAG
 local MV_OP = { --- @enum ModelVariableOperation
     NULL          = 0000,
     CREATE        = 0001,
@@ -105,9 +108,10 @@ function autodiff.model_context()
     --- @return ModelVariable
     function self.mv_create(rows, cols, flags)
         local out = model_var(
-            flags,
+            flags and flags or MV_FLAG.NONE,
             matrix2d.fill(0, rows, cols),
-            btest(flags, MV_FLAG.REQUIRES_GRAD) and matrix2d.fill(0, rows, cols) or nil,
+            -- btest(flags, MV_FLAG.REQUIRES_GRAD) and matrix2d.fill(0, rows, cols) or nil,
+            matrix2d.fill(0, rows, cols), --- @TODO: this is terrible, where did I fuck up?
             MV_OP.CREATE,
             {}
         )
@@ -134,10 +138,11 @@ function autodiff.model_context()
     --- @param input ModelVariable
     --- @param rows integer
     --- @param cols integer
-    --- @param flags integer
+    --- @param flags integer?
     --- @param op ModelVariableOperation
     --- @return ModelVariable
     local function _mv_unary_impl(input, rows, cols, flags, op)
+        flags = flags or MV_FLAG.NONE
         if btest(input.flags, MV_FLAG.REQUIRES_GRAD) then
             flags = bor(flags, MV_FLAG.REQUIRES_GRAD)
         end
@@ -151,10 +156,11 @@ function autodiff.model_context()
     --- @param b ModelVariable
     --- @param rows integer
     --- @param cols integer
-    --- @param flags integer
+    --- @param flags integer?
     --- @param op ModelVariableOperation
     --- @return ModelVariable
     local function _mv_binary_impl(a, b, rows, cols, flags, op)
+        flags = flags or MV_FLAG.NONE
         if btest(a.flags, MV_FLAG.REQUIRES_GRAD) or
             btest(b.flags, MV_FLAG.REQUIRES_GRAD)
         then
@@ -168,14 +174,14 @@ function autodiff.model_context()
     end
 
     --- @param input ModelVariable
-    --- @param flags integer
+    --- @param flags integer?
     --- @return ModelVariable
     function self.mv_relu(input, flags)
         return _mv_unary_impl(input, input.val.rows, input.val.cols, flags, MV_OP.RELU)
     end
 
     --- @param input ModelVariable
-    --- @param flags integer
+    --- @param flags integer?
     --- @return ModelVariable
     function self.mv_softmax(input, flags)
         return _mv_unary_impl(input, input.val.rows, input.val.cols, flags, MV_OP.SOFTMAX)
@@ -183,6 +189,7 @@ function autodiff.model_context()
 
     --- @param a ModelVariable
     --- @param b ModelVariable
+    --- @param flags integer?
     --- @return ModelVariable
     function self.mv_add(a, b, flags)
         if a.val.rows ~= b.val.rows then error("Row mismatch!", 2) end
@@ -192,6 +199,7 @@ function autodiff.model_context()
 
     --- @param a ModelVariable
     --- @param b ModelVariable
+    --- @param flags integer?
     --- @return ModelVariable
     function self.mv_sub(a, b, flags)
         if a.val.rows ~= b.val.rows then error("Row mismatch!", 2) end
@@ -201,6 +209,7 @@ function autodiff.model_context()
 
     --- @param a ModelVariable
     --- @param b ModelVariable
+    --- @param flags integer?
     --- @return ModelVariable
     function self.mv_matmul(a, b, flags)
         if a.val.cols ~= b.val.rows then error("Column-row mismatch!", 2) end
@@ -209,6 +218,7 @@ function autodiff.model_context()
 
     --- @param p ModelVariable
     --- @param q ModelVariable
+    --- @param flags integer?
     --- @return ModelVariable
     function self.mv_cross_entropy(p, q, flags)
         if p.val.rows ~= q.val.rows then error("Row mismatch!", 2) end
@@ -227,6 +237,7 @@ function autodiff.model_context()
 
         local insert, remove = table.insert, table.remove
 
+        -- DFS for reverse topological sort
         insert(stack, out_var)
         while #stack > 0 do
             local cur = remove(stack) --- @type ModelVariable
@@ -237,19 +248,14 @@ function autodiff.model_context()
             insert(stack, cur)
             for i = 1, #cur.inputs do
                 local input = cur.inputs[i]
-                if visited[input] then goto continue end
-
-                error("Not implemented!", 2)
-
-                --- @TODO: iterate over stack, but note that #len changes while we iterate
-                --- and delete entries
-                -- for j = 1, #stack do
-                --     if stack[j] == input then
-
-                --     end
-                -- end
-                insert(stack, input)
-                ::continue::
+                if not visited[input] then
+                    for j = #stack, 1, -1 do
+                        if stack[j] == input then
+                            remove(stack, j); break
+                        end
+                    end
+                    insert(stack, input)
+                end
             end
             ::continue::
         end
@@ -288,7 +294,7 @@ function autodiff.model_context()
     local function model_prog_compute_grads(prog)
         for i = 1, #prog do
             local cur = prog[i] --- @type ModelVariable
-            if btest(cur.flags, MV_FLAG.REQUIRES_GRAD) == false then goto continue end
+            if not btest(cur.flags, MV_FLAG.REQUIRES_GRAD) then goto continue end
             if btest(cur.flags, MV_FLAG.PARAMETER) then goto continue end
             cur.grad = matrix2d.fill(0, cur.grad.rows, cur.grad.cols) -- Clear
             ::continue::
@@ -301,7 +307,7 @@ function autodiff.model_context()
         for i = #prog, 1, -1 do
             local cur = prog[i] --- @type ModelVariable
 
-            if btest(cur.flags, MV_FLAG.REQUIRES_GRAD) == false then goto continue end
+            if not btest(cur.flags, MV_FLAG.REQUIRES_GRAD) then goto continue end
 
             local a, b = unpack(cur.inputs) --- @type ModelVariable, ModelVariable
             local co = cur.op
@@ -321,7 +327,7 @@ function autodiff.model_context()
             if co == MV_OP.RELU then
                 a.grad = a.grad + matrix2d.relu_grad(a.val, cur.grad)
             elseif co == MV_OP.SOFTMAX then
-                a.grad = matrix2d.softmax_grad_vector(cur.val, cur.grad)
+                a.grad = matrix2d.softmax_grad_vector(cur.val, cur.grad) -- Intentional
             elseif co == MV_OP.ADD then
                 if btest(a.flags, MV_FLAG.REQUIRES_GRAD) then
                     a.grad = a.grad + cur.grad
@@ -348,6 +354,7 @@ function autodiff.model_context()
                 local pgn, pqn = matrix2d.cross_entropy_grad(
                     p.val, q.val, cur.grad, true, true
                 )
+                --- @TODO: p.grad is nil; why is MV_FLAG.REQUIRES_GRAD not catching this?
                 p.grad = p.grad + pgn
                 q.grad = q.grad + pqn
             end
@@ -370,8 +377,110 @@ function autodiff.model_context()
 
     --- @param training_desc ModelTrainingDescription
     function self.model_train(training_desc)
-        error("Not implemented!", 2)
-        -- model_prog_compute_grads()
+        local train_images = training_desc.train_images
+        local train_labels = training_desc.train_labels
+        local test_images = training_desc.test_images
+        local test_labels = training_desc.test_labels
+
+        local num_examples = train_images.rows
+        local input_size = train_images.cols
+        local output_size = train_labels.cols
+        local num_tests = test_images.rows
+
+        local epochs = training_desc.epochs
+        local batch_size = training_desc.batch_size
+        local learning_rate = training_desc.learning_rate
+
+        --- @TODO: this is not good
+        local num_batches = math.floor(num_examples / batch_size)
+
+        local training_order = {}
+        for i = 1, num_examples do
+            training_order[i] = i
+        end
+
+        local random, copy_range = math.random, utils.copy_range
+        local auto_yield = utils.yielder(1000, 4000)
+        for epoch = 1, epochs do
+            -- Fisher-Yates shuffle
+            for i = #training_order, 2, -1 do
+                local j = random(i)
+                training_order[i], training_order[j] = training_order[j], training_order[i]
+            end
+
+            for batch = 1, num_batches do
+                for i = 1, #self.cost_prog do
+                    local cur = self.cost_prog[i] --- @type ModelVariable
+                    if btest(cur.flags, MV_FLAG.PARAMETER) then
+                        cur.grad = matrix2d.fill(0, cur.grad.rows, cur.grad.cols)
+                    end
+                end
+
+                local avg_cost = 0
+                for i = 1, batch_size do
+                    auto_yield()
+                    local order_index = (batch - 1) * batch_size + i
+                    local index = training_order[order_index]
+
+                    local img_start = (index - 1) * input_size + 1
+                    copy_range(self.input.val.vals, train_images.vals,
+                        img_start, img_start + input_size - 1
+                    )
+                    local lbl_start = (index - 1) * output_size + 1
+                    copy_range(self.desired_output.val.vals, train_labels.vals,
+                        lbl_start, lbl_start + output_size - 1
+                    )
+
+                    model_prog_compute(self.cost_prog)
+                    model_prog_compute_grads(self.cost_prog)
+
+                    avg_cost = avg_cost + self.cost.val:sum()
+                end
+
+                avg_cost = avg_cost / batch_size
+
+                for i = 1, #self.cost_prog do
+                    local cur = self.cost_prog[i] --- @type ModelVariable
+                    if btest(cur.flags, MV_FLAG.PARAMETER) then
+                        cur.grad = cur.grad:scale(learning_rate / batch_size)
+                        cur.val  = cur.val:sub(cur.grad)
+                    end
+                end
+
+                print(string.format("Epoch %2d/%2d, Batch %4d/%4d, Average Cost: %.4f",
+                    epoch, epochs, batch, num_batches, avg_cost
+                ))
+            end
+
+            print()
+            local num_correct = 0
+            local avg_cost = 0
+
+            for i = 1, num_tests do
+                auto_yield()
+                local img_start = (i - 1) * input_size + 1
+                copy_range(self.input.val.vals, test_images.vals,
+                    img_start, img_start + input_size - 1
+                )
+                local lbl_start = (i - 1) * output_size + 1
+                copy_range(self.desired_output.val.vals, test_labels.vals,
+                    lbl_start, lbl_start + output_size - 1
+                )
+
+                model_prog_compute(self.cost_prog)
+
+                avg_cost = avg_cost + self.cost.val:sum()
+                if self.output.val:argmax() == self.desired_output.val:argmax() then
+                    num_correct = num_correct + 1
+                end
+            end
+
+            avg_cost = avg_cost / num_tests
+            print(string.format("Test completed. Accuracy: %5d/%5d (%.1f%%), Average Cost: %.4f",
+                num_correct, num_tests, num_correct / num_tests * 100, avg_cost
+            ))
+            print()
+        end
     end
 
     return self

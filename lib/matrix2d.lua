@@ -111,7 +111,7 @@ function matrix2d.softmax_grad(input, grad)
     return matrix2d.new(jv, size, size):matmul(grad)
 end
 
---- This is O(n) compared to `softmax_grad`'s O(n^2), please use this instead.
+--- O(n) compared to `softmax_grad`'s O(n^2), please use this instead.
 --- @param input Matrix2d Softmax output vector
 --- @param grad Matrix2d Gradient vector
 --- @return Matrix2d
@@ -337,7 +337,7 @@ function matrix2d.new(values, rows, cols)
     --- @class Matrix2d
     local self = {}
 
-    self.vals = values
+    self.vals = values --- @type table<number>
     self.rows = rows -- Row-major btw.
     self.cols = cols
 
