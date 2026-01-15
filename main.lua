@@ -64,58 +64,55 @@ end
 
 --- @param path string
 --- @param max_entries integer?
---- @return table<integer>, table<table<integer>>
-local function load_csv(path, max_entries)
+--- @return Matrix2d y_matrix One-hot encoded. Shape: n, 10
+--- @return Matrix2d x_matrix Normalised to 0-1. Shape: n, 784
+local function load_matrix(path, max_entries)
     local file = fs.open(path, "r")
-    local labels, pixels = {}, {}
 
     local gmatch = string.gmatch
     local readLine = file.readLine --- @type function
 
-    readLine(); readLine()         -- Skip headers
-    for _ = 1, max_entries or math.huge do
+    -- Hardcoding
+    local IMAGE_SIZE = 784      -- 28 * 28
+    local DIGIT_CATEGORIES = 10 -- 0-9
+
+    local y_vals, x_vals = {}, {}
+
+    readLine(); readLine() -- Skip headers
+    for i = 1, max_entries or math.huge do
         auto_yield()
         local line = readLine()
         if not line then break end
         local itr_cols = gmatch(line, "[^,]+")
-        labels[#labels + 1] = tonumber(itr_cols())
-        local temp = {}
+        y_vals[i] = tonumber(itr_cols())
+
+        local off = (i - 1) * IMAGE_SIZE
+        local j = 1
         for pixel in itr_cols do
-            temp[#temp + 1] = tonumber(pixel)
+            x_vals[off + j] = tonumber(pixel)
+            j = j + 1
         end
-        pixels[#pixels + 1] = temp
     end
     file.close()
-    return labels, pixels
-end
 
---- @param y_raw table<integer>
---- @param x_raw table<table<integer>>
---- @return Matrix2d y_matrix One-hot encoded. Shape: n, 10
---- @return Matrix2d x_matrix Normalised to 0-1. Shape: n, 784
-local function table_to_matrix(y_raw, x_raw)
-    local y_mat = matrix2d.fill(0, #y_raw, 10) -- Yeah, hardcode the 10 different digits.
-    local yv = y_mat.vals
-    for i = 1, #y_raw do
-        local digit = y_raw[i] + 1 -- 0-9 -> 1-10 because 1-indexing
-        yv[(i - 1) * 10 + digit] = 1
+    -- One-hot encoding
+    local y_mat = matrix2d.fill(0, #y_vals, DIGIT_CATEGORIES)
+    local yv, yc = y_mat.vals, y_mat.cols
+    for i = 1, y_mat.rows do
+        local digit = y_vals[i] + 1 -- 0-9 -> 1-10 because 1-indexing
+        yv[(i - 1) * yc + digit] = 1
     end
 
-    local xv = {}
-    local xr, xc = #x_raw, #x_raw[1]
+    -- Normalise x
     local inv_255 = 1 / 255
-    local idx = 1
-    for i = 1, xr do
-        local tbl = x_raw[i]
-        for j = 1, xc do
-            xv[idx] = tbl[j] * inv_255
-            idx = idx + 1
-        end
+    for i = 1, #x_vals do
+        x_vals[i] = x_vals[i] * inv_255
     end
-    return y_mat, matrix2d.new(xv, xr, xc)
+
+    return y_mat, matrix2d.new(x_vals, y_mat.rows, IMAGE_SIZE)
 end
 
---- @param model ModelContext
+--- @param model Model
 local function create_mnist_model(model)
     local input = model.mv_create(784, 1, MV_FLAG.INPUT)
 
@@ -152,23 +149,12 @@ local function create_mnist_model(model)
 end
 
 local function main()
-    local ytr, xtr = timed(
-        load_csv, { TRAINING_PATH, 100 }, "Train .csv -> table"
-    )
-    local yte, xte = timed(
-        load_csv, { TEST_PATH, nil }, "Test .csv -> table"
-    )
+    local y_train, x_train = timed(load_matrix, { TRAINING_PATH, 10000 }, "Train .csv -> matrix")
+    local y_test, x_test = timed(load_matrix, { TEST_PATH, 100 }, "Test .csv -> matrix")
 
-    local y_train, x_train = timed(
-        table_to_matrix, { ytr, xtr }, "Train table -> matrix"
-    )
-    local y_test, x_test = timed(
-        table_to_matrix, { yte, xte }, "Test table -> matrix"
-    )
-
-    local model = autodiff.model_context()
+    local model = autodiff.model()
     create_mnist_model(model)
-    model.model_compile()
+    model.compile()
 
     local n = math.random(y_test.rows)
 
@@ -182,18 +168,18 @@ local function main()
     local x_ei = x_si + x_test.cols - 1
     copy_range(model.input.val.vals, x_test.vals, x_si, x_ei)
 
-    model.model_feed_forward()
+    model.feed_forward()
 
     local pred_pre = model.output.val:copy()
     display_number(model.input.val.vals, label, pred_pre.vals)
 
-    timed(model.model_train, { autodiff.model_training_desc(
+    timed(model.train, { autodiff.training_desc(
         x_train, y_train, x_test, y_test, 1, 50, 0.03
     ) }, "Training")
 
     -- Post training output
     copy_range(model.input.val.vals, x_test.vals, x_si, x_ei)
-    model.model_feed_forward()
+    model.feed_forward()
 
     local pred_post = model.output.val:copy()
     display_number(model.input.val.vals, label, pred_pre.vals, pred_post.vals)

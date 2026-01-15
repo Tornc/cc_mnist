@@ -8,13 +8,15 @@ local pp = require("cc.pretty").pretty_print --- @type function
 local matrix2d = require("lib.matrix2d")
 local utils = require("lib.utils")
 
+local btest, bor = bit32.btest, bit32.bor
+
 local autodiff = {}
 
 --[[ ENUMS, UTILITY, CLASSES ]]
 
 local MV_FLAG = {       --- @enum ModelVariableFlag
-    NONE           = 0, -- bit32.lshift(0, 0,
-    REQUIRES_GRAD  = 1, -- bit32.lshift(1, 0)
+    NONE           = 0, -- `bit32.lshift(0, 0)`
+    REQUIRES_GRAD  = 1, -- `bit32.lshift(1, 0)`
     PARAMETER      = bit32.lshift(1, 1),
     INPUT          = bit32.lshift(1, 2),
     OUTPUT         = bit32.lshift(1, 3),
@@ -45,28 +47,6 @@ local function MV_NUM_INPUTS(op)
     return 2
 end
 
-local btest, bor = bit32.btest, bit32.bor
-
---- @param flags integer
---- @param val Matrix2d
---- @param grad Matrix2d?
---- @param op ModelVariableOperation
---- @param inputs table<ModelVariable>  0-2 model variables
---- @return ModelVariable
-local function model_var(flags, val, grad, op, inputs)
-    if #inputs > MV_MAX_INPUTS then error("Too many inputs!", 2) end
-    if #inputs ~= MV_NUM_INPUTS(op) then error("Operation-input amount mismatch!") end
-
-    --- @class ModelVariable
-    local self = {}
-    self.flags = flags
-    self.val = val
-    self.grad = grad
-    self.op = op
-    self.inputs = inputs
-    return self
-end
-
 --- @param train_images Matrix2d
 --- @param train_labels Matrix2d
 --- @param test_images Matrix2d
@@ -74,10 +54,10 @@ end
 --- @param epochs integer
 --- @param batch_size integer
 --- @param learning_rate number
---- @return ModelTrainingDescription
-function autodiff.model_training_desc(train_images, train_labels, test_images, test_labels,
-                                      epochs, batch_size, learning_rate)
-    --- @class ModelTrainingDescription
+--- @return TrainingDescription
+function autodiff.training_desc(train_images, train_labels, test_images, test_labels,
+                                epochs, batch_size, learning_rate)
+    --- @class TrainingDescription
     local self = {}
     self.train_images = train_images
     self.train_labels = train_labels
@@ -89,9 +69,9 @@ function autodiff.model_training_desc(train_images, train_labels, test_images, t
     return self
 end
 
---- @return ModelContext
-function autodiff.model_context()
-    --- @class ModelContext
+--- @return Model
+function autodiff.model()
+    --- @class Model
     local self = {}
     self.input = nil          --- @type ModelVariable?
     self.output = nil         --- @type ModelVariable?
@@ -107,32 +87,40 @@ function autodiff.model_context()
     --- @param flags integer
     --- @return ModelVariable
     function self.mv_create(rows, cols, flags)
-        local out = model_var(
-            flags and flags or MV_FLAG.NONE,
-            matrix2d.fill(0, rows, cols),
-            -- btest(flags, MV_FLAG.REQUIRES_GRAD) and matrix2d.fill(0, rows, cols) or nil,
-            matrix2d.fill(0, rows, cols), --- @TODO: this is terrible, where did I fuck up?
-            MV_OP.CREATE,
-            {}
-        )
+        --- @class ModelVariable
+        --- @field flags integer
+        --- @field val Matrix2d
+        --- @field grad Matrix2d?
+        --- @field op ModelVariableOperation
+        --- @field inputs table<ModelVariable> 0-2 model variables
+        local model_var = {}
+        model_var.flags = flags or MV_FLAG.NONE
+        model_var.val = matrix2d.fill(0, rows, cols)
+        model_var.op = MV_OP.CREATE
+        model_var.inputs = {}
+
+        --- @TODO: this is terrible, where did I fuck up?
+        -- if btest(flags, MV_FLAG.REQUIRES_GRAD) then
+        model_var.grad = matrix2d.fill(0, rows, cols)
+        -- end
 
         if btest(flags, MV_FLAG.INPUT) then
             if self.input then error("Input already set!", 2) end
-            self.input = out
+            self.input = model_var
         end
         if btest(flags, MV_FLAG.OUTPUT) then
             if self.output then error("Output already set!", 2) end
-            self.output = out
+            self.output = model_var
         end
         if btest(flags, MV_FLAG.DESIRED_OUTPUT) then
             if self.desired_output then error("Desired output already set!", 2) end
-            self.desired_output = out
+            self.desired_output = model_var
         end
         if btest(flags, MV_FLAG.COST) then
             if self.cost then error("Cost already set!", 2) end
-            self.cost = out
+            self.cost = model_var
         end
-        return out
+        return model_var
     end
 
     --- @param input ModelVariable
@@ -230,7 +218,7 @@ function autodiff.model_context()
 
     --- @param out_var ModelVariable
     --- @return table<ModelVariable>
-    local function model_prog_create(out_var)
+    local function program_create(out_var)
         local visited = {} --- @type table<ModelVariable, boolean|nil>
         local stack = {}   --- @type table<ModelVariable>
         local out = {}     --- @type table<ModelVariable>
@@ -265,7 +253,7 @@ function autodiff.model_context()
 
     --- Forward pass
     --- @param prog table<ModelVariable>
-    local function model_prog_compute(prog)
+    local function program_compute(prog)
         local unpack = table.unpack
         for i = 1, #prog do
             local cur = prog[i]             --- @type ModelVariable
@@ -291,7 +279,7 @@ function autodiff.model_context()
 
     --- Backward pass
     --- @param prog table<ModelVariable>
-    local function model_prog_compute_grads(prog)
+    local function program_compute_grads(prog)
         for i = 1, #prog do
             local cur = prog[i] --- @type ModelVariable
             if not btest(cur.flags, MV_FLAG.REQUIRES_GRAD) then goto continue end
@@ -364,19 +352,19 @@ function autodiff.model_context()
 
     --[[ MODEL INTERFACE or something ]]
 
-    function self.model_compile()
+    function self.compile()
         if not self.output then error("Model has no output!", 2) end
         if not self.cost then error("Model has no cost!", 2) end
-        self.forward_prog = model_prog_create(self.output)
-        self.cost_prog = model_prog_create(self.cost)
+        self.forward_prog = program_create(self.output)
+        self.cost_prog = program_create(self.cost)
     end
 
-    function self.model_feed_forward()
-        model_prog_compute(self.forward_prog)
+    function self.feed_forward()
+        program_compute(self.forward_prog)
     end
 
-    --- @param training_desc ModelTrainingDescription
-    function self.model_train(training_desc)
+    --- @param training_desc TrainingDescription
+    function self.train(training_desc)
         local train_images = training_desc.train_images
         local train_labels = training_desc.train_labels
         local test_images = training_desc.test_images
@@ -431,8 +419,8 @@ function autodiff.model_context()
                         lbl_start, lbl_start + output_size - 1
                     )
 
-                    model_prog_compute(self.cost_prog)
-                    model_prog_compute_grads(self.cost_prog)
+                    program_compute(self.cost_prog)
+                    program_compute_grads(self.cost_prog)
 
                     avg_cost = avg_cost + self.cost.val:sum()
                 end
@@ -467,7 +455,7 @@ function autodiff.model_context()
                     lbl_start, lbl_start + output_size - 1
                 )
 
-                model_prog_compute(self.cost_prog)
+                program_compute(self.cost_prog)
 
                 avg_cost = avg_cost + self.cost.val:sum()
                 if self.output.val:argmax() == self.desired_output.val:argmax() then
