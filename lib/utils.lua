@@ -24,11 +24,11 @@ function utils.yielder(check_interval, yield_threshold)
 end
 
 --- @param fn function
---- @param args table
+--- @param args table?
 --- @param desc string?
 function utils.timed(fn, args, desc)
     local t1 = os.epoch("utc")
-    local results = { fn(table.unpack(args)) }
+    local results = { fn(table.unpack(args or {})) }
     local str = desc and desc .. " took " or ""
     print(str .. (os.epoch("utc") - t1) .. "ms")
     return table.unpack(results)

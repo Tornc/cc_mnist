@@ -14,7 +14,7 @@ local autodiff = {}
 
 --[[ ENUMS, UTILITY, CLASSES ]]
 
-local MV_FLAG = {       --- @enum ModelVariableFlag
+local VAR_FLAG = {      --- @enum ModelVariableFlag
     NONE           = 0, -- `bit32.lshift(0, 0)`
     REQUIRES_GRAD  = 1, -- `bit32.lshift(1, 0)`
     PARAMETER      = bit32.lshift(1, 1),
@@ -23,8 +23,8 @@ local MV_FLAG = {       --- @enum ModelVariableFlag
     DESIRED_OUTPUT = bit32.lshift(1, 4),
     COST           = bit32.lshift(1, 5),
 }
-autodiff.MV_FLAG = MV_FLAG
-local MV_OP = { --- @enum ModelVariableOperation
+autodiff.VAR_FLAG = VAR_FLAG
+local VAR_OP = { --- @enum ModelVariableOperation
     NULL          = 0000,
     CREATE        = 0001,
     _UNARY_START  = 1000, -- Demarcator
@@ -42,8 +42,8 @@ local MV_MAX_INPUTS = 2
 --- @param op ModelVariableOperation
 --- @return integer
 local function MV_NUM_INPUTS(op)
-    if op < MV_OP._UNARY_START then return 0 end
-    if op < MV_OP._BINARY_START then return 1 end
+    if op < VAR_OP._UNARY_START then return 0 end
+    if op < VAR_OP._BINARY_START then return 1 end
     return 2
 end
 
@@ -54,10 +54,11 @@ end
 --- @param epochs integer
 --- @param batch_size integer
 --- @param learning_rate number
---- @return TrainingDescription
-function autodiff.training_desc(train_images, train_labels, test_images, test_labels,
-                                epochs, batch_size, learning_rate)
-    --- @class TrainingDescription
+--- @param save_dir string
+--- @return TrainingContext
+function autodiff.training_context(train_images, train_labels, test_images, test_labels,
+                                   epochs, batch_size, learning_rate, save_dir)
+    --- @class TrainingContext
     local self = {}
     self.train_images = train_images
     self.train_labels = train_labels
@@ -66,6 +67,7 @@ function autodiff.training_desc(train_images, train_labels, test_images, test_la
     self.epochs = epochs
     self.batch_size = batch_size
     self.learning_rate = learning_rate
+    self.save_dir = save_dir
     return self
 end
 
@@ -79,48 +81,55 @@ function autodiff.model()
     self.cost = nil           --- @type ModelVariable?
     self.forward_prog = {}    --- @type table<ModelVariable>
     self.cost_prog = {}       --- @type table<ModelVariable>
+    self.parameters = {}      --- @type table<string, ModelVariable> For saving weights and biases.
 
     --[[ MODEL VARIABLE FACTORIES ]]
 
     --- @param rows integer
     --- @param cols integer
     --- @param flags integer
+    --- @param name string?
     --- @return ModelVariable
-    function self.mv_create(rows, cols, flags)
+    function self.var_create(rows, cols, flags, name)
         --- @class ModelVariable
         --- @field flags integer
         --- @field val Matrix2d
         --- @field grad Matrix2d?
         --- @field op ModelVariableOperation
         --- @field inputs table<ModelVariable> 0-2 model variables
-        local model_var = {}
-        model_var.flags = flags or MV_FLAG.NONE
-        model_var.val = matrix2d.fill(0, rows, cols)
-        model_var.op = MV_OP.CREATE
-        model_var.inputs = {}
+        local var = {}
+        var.flags = flags or VAR_FLAG.NONE
+        var.val = matrix2d.fill(0, rows, cols)
+        var.op = VAR_OP.CREATE
+        var.inputs = {}
 
         --- @TODO: this is terrible, where did I fuck up?
         -- if btest(flags, MV_FLAG.REQUIRES_GRAD) then
-        model_var.grad = matrix2d.fill(0, rows, cols)
+        var.grad = matrix2d.fill(0, rows, cols)
         -- end
 
-        if btest(flags, MV_FLAG.INPUT) then
+        if btest(flags, VAR_FLAG.PARAMETER) then
+            if not name then error("Parameter has not been assigned a name!", 2) end
+            if self.parameters[name] then error("Parameter already exists!", 2) end
+            self.parameters[name] = var
+        end
+        if btest(flags, VAR_FLAG.INPUT) then
             if self.input then error("Input already set!", 2) end
-            self.input = model_var
+            self.input = var
         end
-        if btest(flags, MV_FLAG.OUTPUT) then
+        if btest(flags, VAR_FLAG.OUTPUT) then
             if self.output then error("Output already set!", 2) end
-            self.output = model_var
+            self.output = var
         end
-        if btest(flags, MV_FLAG.DESIRED_OUTPUT) then
+        if btest(flags, VAR_FLAG.DESIRED_OUTPUT) then
             if self.desired_output then error("Desired output already set!", 2) end
-            self.desired_output = model_var
+            self.desired_output = var
         end
-        if btest(flags, MV_FLAG.COST) then
+        if btest(flags, VAR_FLAG.COST) then
             if self.cost then error("Cost already set!", 2) end
-            self.cost = model_var
+            self.cost = var
         end
-        return model_var
+        return var
     end
 
     --- @param input ModelVariable
@@ -129,12 +138,12 @@ function autodiff.model()
     --- @param flags integer?
     --- @param op ModelVariableOperation
     --- @return ModelVariable
-    local function _mv_unary_impl(input, rows, cols, flags, op)
-        flags = flags or MV_FLAG.NONE
-        if btest(input.flags, MV_FLAG.REQUIRES_GRAD) then
-            flags = bor(flags, MV_FLAG.REQUIRES_GRAD)
+    local function _var_unary_impl(input, rows, cols, flags, op)
+        flags = flags or VAR_FLAG.NONE
+        if btest(input.flags, VAR_FLAG.REQUIRES_GRAD) then
+            flags = bor(flags, VAR_FLAG.REQUIRES_GRAD)
         end
-        local out = self.mv_create(rows, cols, flags)
+        local out = self.var_create(rows, cols, flags, nil)
         out.op = op
         out.inputs[1] = input
         return out
@@ -147,14 +156,14 @@ function autodiff.model()
     --- @param flags integer?
     --- @param op ModelVariableOperation
     --- @return ModelVariable
-    local function _mv_binary_impl(a, b, rows, cols, flags, op)
-        flags = flags or MV_FLAG.NONE
-        if btest(a.flags, MV_FLAG.REQUIRES_GRAD) or
-            btest(b.flags, MV_FLAG.REQUIRES_GRAD)
+    local function _var_binary_impl(a, b, rows, cols, flags, op)
+        flags = flags or VAR_FLAG.NONE
+        if btest(a.flags, VAR_FLAG.REQUIRES_GRAD) or
+            btest(b.flags, VAR_FLAG.REQUIRES_GRAD)
         then
-            flags = bor(flags, MV_FLAG.REQUIRES_GRAD)
+            flags = bor(flags, VAR_FLAG.REQUIRES_GRAD)
         end
-        local out = self.mv_create(rows, cols, flags)
+        local out = self.var_create(rows, cols, flags, nil)
         out.op = op
         out.inputs[1] = a
         out.inputs[2] = b
@@ -164,54 +173,54 @@ function autodiff.model()
     --- @param input ModelVariable
     --- @param flags integer?
     --- @return ModelVariable
-    function self.mv_relu(input, flags)
-        return _mv_unary_impl(input, input.val.rows, input.val.cols, flags, MV_OP.RELU)
+    function self.var_relu(input, flags)
+        return _var_unary_impl(input, input.val.rows, input.val.cols, flags, VAR_OP.RELU)
     end
 
     --- @param input ModelVariable
     --- @param flags integer?
     --- @return ModelVariable
-    function self.mv_softmax(input, flags)
-        return _mv_unary_impl(input, input.val.rows, input.val.cols, flags, MV_OP.SOFTMAX)
+    function self.var_softmax(input, flags)
+        return _var_unary_impl(input, input.val.rows, input.val.cols, flags, VAR_OP.SOFTMAX)
     end
 
     --- @param a ModelVariable
     --- @param b ModelVariable
     --- @param flags integer?
     --- @return ModelVariable
-    function self.mv_add(a, b, flags)
+    function self.var_add(a, b, flags)
         if a.val.rows ~= b.val.rows then error("Row mismatch!", 2) end
         if a.val.cols ~= b.val.cols then error("Column mismatch!", 2) end
-        return _mv_binary_impl(a, b, a.val.rows, a.val.cols, flags, MV_OP.ADD)
+        return _var_binary_impl(a, b, a.val.rows, a.val.cols, flags, VAR_OP.ADD)
     end
 
     --- @param a ModelVariable
     --- @param b ModelVariable
     --- @param flags integer?
     --- @return ModelVariable
-    function self.mv_sub(a, b, flags)
+    function self.var_sub(a, b, flags)
         if a.val.rows ~= b.val.rows then error("Row mismatch!", 2) end
         if a.val.cols ~= b.val.cols then error("Column mismatch!", 2) end
-        return _mv_binary_impl(a, b, a.val.rows, a.val.cols, flags, MV_OP.SUB)
+        return _var_binary_impl(a, b, a.val.rows, a.val.cols, flags, VAR_OP.SUB)
     end
 
     --- @param a ModelVariable
     --- @param b ModelVariable
     --- @param flags integer?
     --- @return ModelVariable
-    function self.mv_matmul(a, b, flags)
+    function self.var_matmul(a, b, flags)
         if a.val.cols ~= b.val.rows then error("Column-row mismatch!", 2) end
-        return _mv_binary_impl(a, b, a.val.rows, b.val.cols, flags, MV_OP.MATMUL)
+        return _var_binary_impl(a, b, a.val.rows, b.val.cols, flags, VAR_OP.MATMUL)
     end
 
     --- @param p ModelVariable
     --- @param q ModelVariable
     --- @param flags integer?
     --- @return ModelVariable
-    function self.mv_cross_entropy(p, q, flags)
+    function self.var_cross_entropy(p, q, flags)
         if p.val.rows ~= q.val.rows then error("Row mismatch!", 2) end
         if p.val.cols ~= q.val.cols then error("Column mismatch!", 2) end
-        return _mv_binary_impl(p, q, p.val.rows, p.val.cols, flags, MV_OP.CROSS_ENTROPY)
+        return _var_binary_impl(p, q, p.val.rows, p.val.cols, flags, VAR_OP.CROSS_ENTROPY)
     end
 
     --[[ COMPUTATION GRAPH ]]
@@ -261,17 +270,17 @@ function autodiff.model()
             local a, b = unpack(cur.inputs) --- @type ModelVariable, ModelVariable
             local co = cur.op
             --- @NOTE: Tried using a table out of switch-statement nostalgia. Didn't work!
-            if co == MV_OP.RELU then
+            if co == VAR_OP.RELU then
                 cur.val = a.val:relu()
-            elseif co == MV_OP.SOFTMAX then
+            elseif co == VAR_OP.SOFTMAX then
                 cur.val = a.val:softmax()
-            elseif co == MV_OP.ADD then
+            elseif co == VAR_OP.ADD then
                 cur.val = a.val:add(b.val)
-            elseif co == MV_OP.SUB then
+            elseif co == VAR_OP.SUB then
                 cur.val = a.val:sub(b.val)
-            elseif co == MV_OP.MATMUL then
+            elseif co == VAR_OP.MATMUL then
                 cur.val = a.val:matmul(b.val)
-            elseif co == MV_OP.CROSS_ENTROPY then
+            elseif co == VAR_OP.CROSS_ENTROPY then
                 cur.val = a.val:cross_entropy(b.val)
             end
         end
@@ -282,8 +291,8 @@ function autodiff.model()
     local function program_compute_grads(prog)
         for i = 1, #prog do
             local cur = prog[i] --- @type ModelVariable
-            if not btest(cur.flags, MV_FLAG.REQUIRES_GRAD) then goto continue end
-            if btest(cur.flags, MV_FLAG.PARAMETER) then goto continue end
+            if not btest(cur.flags, VAR_FLAG.REQUIRES_GRAD) then goto continue end
+            if btest(cur.flags, VAR_FLAG.PARAMETER) then goto continue end
             cur.grad = matrix2d.fill(0, cur.grad.rows, cur.grad.cols) -- Clear
             ::continue::
         end
@@ -295,49 +304,49 @@ function autodiff.model()
         for i = #prog, 1, -1 do
             local cur = prog[i] --- @type ModelVariable
 
-            if not btest(cur.flags, MV_FLAG.REQUIRES_GRAD) then goto continue end
+            if not btest(cur.flags, VAR_FLAG.REQUIRES_GRAD) then goto continue end
 
             local a, b = unpack(cur.inputs) --- @type ModelVariable, ModelVariable
             local co = cur.op
             local num_inputs = MV_NUM_INPUTS(co)
             if num_inputs == 1 and
-                btest(a.flags, MV_FLAG.REQUIRES_GRAD) == false
+                btest(a.flags, VAR_FLAG.REQUIRES_GRAD) == false
             then
                 goto continue
             end
             if num_inputs == 2 and
-                btest(a.flags, MV_FLAG.REQUIRES_GRAD) == false and
-                btest(b.flags, MV_FLAG.REQUIRES_GRAD) == false
+                btest(a.flags, VAR_FLAG.REQUIRES_GRAD) == false and
+                btest(b.flags, VAR_FLAG.REQUIRES_GRAD) == false
             then
                 goto continue
             end
 
-            if co == MV_OP.RELU then
+            if co == VAR_OP.RELU then
                 a.grad = a.grad + matrix2d.relu_grad(a.val, cur.grad)
-            elseif co == MV_OP.SOFTMAX then
+            elseif co == VAR_OP.SOFTMAX then
                 a.grad = matrix2d.softmax_grad_vector(cur.val, cur.grad) -- Intentional
-            elseif co == MV_OP.ADD then
-                if btest(a.flags, MV_FLAG.REQUIRES_GRAD) then
+            elseif co == VAR_OP.ADD then
+                if btest(a.flags, VAR_FLAG.REQUIRES_GRAD) then
                     a.grad = a.grad + cur.grad
                 end
-                if btest(b.flags, MV_FLAG.REQUIRES_GRAD) then
+                if btest(b.flags, VAR_FLAG.REQUIRES_GRAD) then
                     b.grad = b.grad + cur.grad
                 end
-            elseif co == MV_OP.SUB then
-                if btest(a.flags, MV_FLAG.REQUIRES_GRAD) then
+            elseif co == VAR_OP.SUB then
+                if btest(a.flags, VAR_FLAG.REQUIRES_GRAD) then
                     a.grad = a.grad + cur.grad -- Intentional
                 end
-                if btest(b.flags, MV_FLAG.REQUIRES_GRAD) then
+                if btest(b.flags, VAR_FLAG.REQUIRES_GRAD) then
                     b.grad = b.grad - cur.grad
                 end
-            elseif co == MV_OP.MATMUL then
-                if btest(a.flags, MV_FLAG.REQUIRES_GRAD) then
+            elseif co == VAR_OP.MATMUL then
+                if btest(a.flags, VAR_FLAG.REQUIRES_GRAD) then
                     a.grad = a.grad + cur.grad * b.val:transpose()
                 end
-                if btest(b.flags, MV_FLAG.REQUIRES_GRAD) then
+                if btest(b.flags, VAR_FLAG.REQUIRES_GRAD) then
                     b.grad = b.grad + a.val:transpose() * cur.grad
                 end
-            elseif co == MV_OP.CROSS_ENTROPY then
+            elseif co == VAR_OP.CROSS_ENTROPY then
                 local p, q = a, b
                 local pgn, pqn = matrix2d.cross_entropy_grad(
                     p.val, q.val, cur.grad, true, true
@@ -350,7 +359,38 @@ function autodiff.model()
         end
     end
 
-    --[[ MODEL INTERFACE or something ]]
+    --[[ PROGRESS SAVING ]]
+
+    --- @param path string
+    local function write_to_disk(path)
+        local file = fs.open(path, "w")
+        local km = {}
+        for k, v in pairs(self.parameters) do
+            km[k] = v.val.vals
+        end
+        file.write(textutils.serialiseJSON(km))
+        file.close()
+    end
+
+    --- @param path string
+    function self.load_from_disk(path)
+        --- @TODO: check if file exists and other stuff?
+        --- @TODO: how should we set current epoch?
+        local file = fs.open(path, "r")
+        local km = textutils.unserialiseJSON(file.readAll())
+        for k, v in pairs(km) do
+            if not self.parameters[k] then
+                error("Save [" .. path .. "] contains unknown parameter [" .. k .. "]!")
+            end
+            if #v ~= #self.parameters[k].val.vals then
+                error("Save [" .. path .. "] contains mismatched parameter [" .. k .. "]!")
+            end
+            self.parameters[k].val.vals = v
+        end
+        file.close()
+    end
+
+    --[[ MODEL INTERFACE ]]
 
     function self.compile()
         if not self.output then error("Model has no output!", 2) end
@@ -363,21 +403,22 @@ function autodiff.model()
         program_compute(self.forward_prog)
     end
 
-    --- @param training_desc TrainingDescription
-    function self.train(training_desc)
-        local train_images = training_desc.train_images
-        local train_labels = training_desc.train_labels
-        local test_images = training_desc.test_images
-        local test_labels = training_desc.test_labels
+    --- Stochastic Gradient Descent
+    --- @param context TrainingContext
+    function self.train(context)
+        local train_images = context.train_images
+        local train_labels = context.train_labels
+        local test_images = context.test_images
+        local test_labels = context.test_labels
 
         local num_examples = train_images.rows
         local input_size = train_images.cols
         local output_size = train_labels.cols
         local num_tests = test_images.rows
 
-        local epochs = training_desc.epochs
-        local batch_size = training_desc.batch_size
-        local learning_rate = training_desc.learning_rate
+        local epochs = context.epochs
+        local batch_size = context.batch_size
+        local learning_rate = context.learning_rate
 
         --- @TODO: this is not good
         local num_batches = math.floor(num_examples / batch_size)
@@ -386,6 +427,9 @@ function autodiff.model()
         for i = 1, num_examples do
             training_order[i] = i
         end
+
+        --- @TODO: instead of starting epoch from 0, check if we are loading
+        --- anything (from context, either a number (error if not exist) or 'latest' or nil (don't load))
 
         local random, copy_range = math.random, utils.copy_range
         local auto_yield = utils.yielder(1000, 4000)
@@ -399,7 +443,7 @@ function autodiff.model()
             for batch = 1, num_batches do
                 for i = 1, #self.cost_prog do
                     local cur = self.cost_prog[i] --- @type ModelVariable
-                    if btest(cur.flags, MV_FLAG.PARAMETER) then
+                    if btest(cur.flags, VAR_FLAG.PARAMETER) then
                         cur.grad = matrix2d.fill(0, cur.grad.rows, cur.grad.cols)
                     end
                 end
@@ -429,7 +473,7 @@ function autodiff.model()
 
                 for i = 1, #self.cost_prog do
                     local cur = self.cost_prog[i] --- @type ModelVariable
-                    if btest(cur.flags, MV_FLAG.PARAMETER) then
+                    if btest(cur.flags, VAR_FLAG.PARAMETER) then
                         cur.grad = cur.grad:scale(learning_rate / batch_size)
                         cur.val  = cur.val:sub(cur.grad)
                     end
@@ -467,6 +511,10 @@ function autodiff.model()
             print(string.format("Test completed. Accuracy: %5d/%5d (%.1f%%), Average Cost: %.4f",
                 num_correct, num_tests, num_correct / num_tests * 100, avg_cost
             ))
+            print()
+
+            write_to_disk(context.save_dir .. "/" .. epoch)
+            print("Successfully saved parameters to disk.")
             print()
         end
     end

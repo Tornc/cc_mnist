@@ -20,7 +20,7 @@ Explanation of the 4 rows:
 ### TODO
 - [x] Finish the damn thing
 - [ ] Fix the bugs and clean up
-- [ ] Save state to disk at every epoch
+- [x] Save state to disk at every epoch
 - [ ] Enable state loading
 - [ ] Test the performance of pregenerating hard-coded matrix math functions for specific sizes and save it to disk to re-use
 - [ ] Optimise more
