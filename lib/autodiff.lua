@@ -514,7 +514,7 @@ function autodiff.model()
                 epoch, epochs, num_correct, num_tests, num_correct / num_tests * 100, avg_cost
             ))
 
-            -- write_to_disk(context.save_dir .. "/" .. epoch)
+            write_to_disk(context.save_dir .. "/" .. epoch)
             win:write_at(1, 5, string.format("Saved epoch %d parameters to disk.", epoch))
         end
         win.setCursorPos(1, 7) -- Dumb hack for timed(...)
