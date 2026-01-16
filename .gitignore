@@ -1,2 +1,3 @@
 dataset/*
 progress/*
+!progress/20
