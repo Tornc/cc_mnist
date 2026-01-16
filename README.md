@@ -11,6 +11,10 @@ All of the ML-related code is based on Magicalbat's [**youtube**](https://www.yo
 
 1 epoch took ~7 minutes on regular CraftOS. With CraftOS-PC Accelerated, it takes ~20 seconds. LuaJIT is amazing.
 
+### Regarding performance (or lack thereof)
+
+Many questionable design choices were made during adaptation. One of which is not making the matrix module perform calculations in-place like the C version. The reason is that I wanted to make the module more usable for my other (non-ML) projects. In hindsight, this is kinda stupid since half of the code is very specific anyway. Oh well...
+
 ### TODO
 - [x] Finish the damn thing
 - [x] Fix the bugs
