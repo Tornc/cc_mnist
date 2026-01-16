@@ -1,0 +1,1 @@
+### Put `mnist_test.csv` and `mnist_train.csv` in this folder!
