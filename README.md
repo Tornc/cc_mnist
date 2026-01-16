@@ -5,24 +5,17 @@ All of the ML-related code is based on Magicalbat's [**youtube**](https://www.yo
 > [!WARNING]
 > Compared to the C version, the matrix math is hilariously slow. Use of **CraftOS-PC Accelerated (i.e. LuaJIT)** is highly advised.
 
-![monitor](./docs/monitor.png)
-
-Explanation of the 4 rows:
-- D is what digit it is.
-- L is what digit it is, but one-hot encoded. It lines up with D (column-wise).
-- B is what the model predicts before the training.
-- A is what the model predicts after the training.
-
-![terminal](./docs/terminal.png)
+![interactive demo](./docs/demo.gif)
 
 1 epoch took ~7 minutes on regular CraftOS. With CraftOS-PC Accelerated, it takes ~20 seconds. LuaJIT is amazing.
 
 ### TODO
 - [x] Finish the damn thing
-- [ ] Fix the bugs and clean up
-- [x] Save state to disk at every epoch
-- [ ] Enable state loading
+- [x] Fix the bugs
+- [x] Save/load weights to disk
+- [x] Command line args
 - [ ] Test the performance of pregenerating hard-coded matrix math functions for specific sizes and save it to disk to re-use
 - [ ] Optimise more
 - [x] Make it work with CraftOS
 - [ ] Make it work inside Minecraft (yield-spam pt.2)
+- [x] Interactive demo

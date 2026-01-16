@@ -1,9 +1,3 @@
--- [[ PLATFORM-SPECIFIC CODE ]]
-
-if not periphemu then print("You're inside of Minecraft, aren't you?") end
-if not ffi then print("Please consider using LuaJIT.") end
-if periphemu then periphemu.create("front", "monitor") end
-
 --[[ IMPORTS ]]
 
 local autodiff = require("lib.autodiff")
@@ -12,23 +6,11 @@ local matrix2d = require("lib.matrix2d")
 local pretty = require("cc.pretty")
 local utils = require("lib.utils")
 
---[[ PERIPHERALS ]]
-
-local MONITOR = peripheral.find("monitor")
-MONITOR.write_at = function(self, x, y, str) -- I love injection
-    self.setCursorPos(x, y); self.write(str)
-end
-
 --[[ CONSTANTS ]]
 
 local TRAINING_PATH = shell.resolve("./dataset/mnist_train.csv")
 local TEST_PATH = shell.resolve("./dataset/mnist_test.csv")
 local PROGRESS_DIR_PATH = shell.resolve("./progress")
-
-local WHITE = colours.toBlit(colours.white)
-local LIGHT_GREY = colours.toBlit(colours.lightGrey)
-local GREY = colours.toBlit(colours.grey)
-local BLACK = colours.toBlit(colours.black)
 
 --[[ ALIASES ]]
 
@@ -38,44 +20,6 @@ local bor = bit32.bor
 local pp = pretty.pretty_print --- @type function
 
 --[[ FUNCTIONS ]]
-
---- @param image table<number> 0-1
---- @param label table<number> 10 numbers
---- @param pred_pre table<number> 10 numbers
---- @param pred_post table<number>? 10 numbers
-local function display_number(image, label, pred_pre, pred_post)
-    local cv = display.canvas(28, 30, BLACK)
-    local win = window.create(MONITOR, 1, 1, cv.w / 2, cv.h / 3)
-
-    MONITOR.clear()
-    cv.clear()
-    local px = cv.pixels
-    for i = 1, #image do -- This is the lazy way to do it.
-        if image[i] > 0.75 then
-            px[i] = WHITE
-        elseif image[i] > 0.5 then
-            px[i] = LIGHT_GREY
-        elseif image[i] > 0.25 then
-            px[i] = GREY
-        end
-    end
-    display.blit_canvas(win, cv)
-
-    local form_digits, form_lbl, form_pre, form_post = {}, {}, {}, {}
-    for i = 1, #label do
-        form_digits[i] = string.format("%-4s", i - 1)
-        form_lbl[i] = string.format("%-4s", label[i])
-        form_pre[i] = string.format("%.2f", pred_pre[i])
-        if pred_post then form_post[i] = string.format("%.2f", pred_post[i]) end
-    end
-
-    local _, wy = win.getSize()
-    MONITOR:write_at(1, wy + 1, "D " .. table.concat(form_digits, " ")) -- Digit
-    MONITOR:write_at(1, wy + 2, "L " .. table.concat(form_lbl, " "))    -- Label
-    MONITOR:write_at(1, wy + 3, "B " .. table.concat(form_pre, " "))    -- Output before
-    if not pred_post then return end
-    MONITOR:write_at(1, wy + 4, "A " .. table.concat(form_post, " "))   -- Output after
-end
 
 --- @param path string
 --- @param max_entries integer?
@@ -127,8 +71,10 @@ local function load_csv(path, max_entries)
     return y_mat, matrix2d.new(x_vals, y_mat.rows, IMAGE_SIZE)
 end
 
---- @param model Model
-local function create_mnist_model(model)
+--- @return Model model
+local function create_mnist_model()
+    local model = autodiff.model()
+
     local input = model.var_create(784, 1, VAR_FLAG.INPUT)
 
     local w0 = model.var_create(16, 784, bor(VAR_FLAG.REQUIRES_GRAD, VAR_FLAG.PARAMETER), "w0")
@@ -163,47 +109,252 @@ local function create_mnist_model(model)
     w0.val = matrix2d.fill_rand(-bound0, bound0, w0.val.rows, w0.val.cols)
     w1.val = matrix2d.fill_rand(-bound1, bound1, w1.val.rows, w1.val.cols)
     w2.val = matrix2d.fill_rand(-bound2, bound2, w2.val.rows, w2.val.cols)
+
+    return model
 end
 
-local function main()
+--- @param n_epochs integer
+--- @param batch_size integer
+--- @param learning_rate number
+--- @param save string?
+local function train(n_epochs, batch_size, learning_rate, save)
+    term.clear()
+    term.setCursorPos(1, 1)
+
+    if not periphemu then print("You're inside of Minecraft, aren't you?") end
+    if not ffi then print("Please consider using LuaJIT.") end
+
     local y_train, x_train = timed(load_csv, { TRAINING_PATH, nil }, "Train .csv -> matrix")
     local y_test, x_test = timed(load_csv, { TEST_PATH, nil }, "Test .csv -> matrix")
-
-    local model = autodiff.model()
-    create_mnist_model(model)
+    local model = create_mnist_model()
     model.compile()
-
-    local n = math.random(y_test.rows)
-
-    local y_si = (n - 1) * y_test.cols + 1
-    local y_ei = y_si + y_test.cols - 1
-    local label = {}
-    copy_range(label, y_test.vals, y_si, y_ei)
-
-    -- Pre-training output
-    local x_si = (n - 1) * x_test.cols + 1
-    local x_ei = x_si + x_test.cols - 1
-    copy_range(model.input.val.vals, x_test.vals, x_si, x_ei)
-
-    model.feed_forward()
-
-    local pred_pre = model.output.val:copy()
-    display_number(model.input.val.vals, label, pred_pre.vals)
+    if save then model.load_from_disk(PROGRESS_DIR_PATH .. "/" .. save) end
 
     timed(model.train, { autodiff.training_context(
-        x_train, y_train, x_test, y_test, 1, 50, 0.03, PROGRESS_DIR_PATH
+        x_train, y_train, x_test, y_test, n_epochs, batch_size, learning_rate, PROGRESS_DIR_PATH
     ) }, "Training")
-
-    -- model.load_from_disk(PROGRESS_DIR_PATH .. "/" .. 3)
-
-    -- Post training output
-    copy_range(model.input.val.vals, x_test.vals, x_si, x_ei)
-    model.feed_forward()
-
-    local pred_post = model.output.val:copy()
-    display_number(model.input.val.vals, label, pred_pre.vals, pred_post.vals)
 end
 
-main()
+--- @param save string
+--- @param n_samples integer
+local function demo(save, n_samples)
+    --[[ MODEL SETUP ]]
 
--- pp(fs.list(PROGRESS_DIR_PATH))
+    local model = create_mnist_model()
+    model.compile()
+    model.load_from_disk(PROGRESS_DIR_PATH .. "/" .. save)
+    local y_test, x_test = load_csv(TEST_PATH, n_samples)
+
+    -- [[ DEMO CONSTANTS ]]
+
+    local WHITE = colours.toBlit(colours.white)
+    local LIGHT_GREY = colours.toBlit(colours.lightGrey)
+    local GREY = colours.toBlit(colours.grey)
+    local BLACK = colours.toBlit(colours.black)
+    local RED = colours.toBlit(colours.red)
+    local PURPLE = colours.toBlit(colours.purple)
+
+    --[[ DEMO STATE VARIABLES ]]
+
+    local mouse_click = { button = nil, x = nil, y = nil }
+    local mouse_drag = { button = nil, x = nil, y = nil }
+    local correct_answer = nil
+
+    --- @param x integer
+    --- @param y integer
+    --- @param content string
+    --- @param text_colour string
+    --- @param background_colour string
+    --- @param action function
+    --- @return Button
+    local function button(x, y, content, text_colour, background_colour, action)
+        --- @class Button
+        local self = {}
+        self.x0 = x
+        self.y0 = y
+        self.x1 = x + #content - 1
+        self.y1 = y + 1 - 1 --- @NOTE: No multi-line support because it's not needed here.
+        self.content = content
+        self.text_colour = text_colour
+        self.background_colour = background_colour
+        self.action = action
+
+        function self.draw(window)
+            window.setCursorPos(self.x0, self.y0)
+            window.blit(self.content,
+                self.text_colour:rep(#self.content),
+                self.background_colour:rep(#self.content)
+            )
+        end
+
+        function self.on_click()
+            local _x, _y = mouse_click.x, mouse_click.y
+            if not (_x and _y) then return end
+            if self.x0 > _x or _x > self.x1 or self.y0 > _y or _y > self.y1 then return end
+            self:action() -- No harm in passing self for interesting behaviour.
+        end
+
+        return self
+    end
+
+    local function input_listener()
+        while true do
+            local event, p1, p2, p3 = os.pullEvent()
+            if event == "mouse_click" then mouse_click = { button = p1, x = p2, y = p3 } end
+            if event == "mouse_drag" then mouse_drag = { button = p1, x = p2, y = p3 } end
+        end
+    end
+
+    local function put(mat, x, y, v)
+        local w, h = 28, 28
+        if x < 1 or x > w or y < 1 or y > h then return end
+        local pos = (y - 1) * w + x
+        mat.vals[pos] = math.max(0, math.min(1, mat.vals[pos] + v))
+    end
+
+    local function screen()
+        term.clear()
+        local tw, th = term.getSize()
+        local win = window.create(term.current(), 1, 1, tw, th)
+        win.write_at = function(self, x, y, str)
+            self.setCursorPos(x, y); self.write(str)
+        end
+        local wx, wy = win.getPosition()
+
+        local cv = display.canvas(28, 30, WHITE)
+        local image = matrix2d.fill(0, 784, 1)
+
+        local clear_btn = button(1, 12, "[CLEAR]", WHITE, RED, function()
+            image = matrix2d.fill(0, image.rows, image.cols)
+            correct_answer = nil
+        end)
+        local random_btn = button(14, 12, "[RANDOM]", WHITE, PURPLE, function()
+            local n = math.random(y_test.rows)
+
+            local y_si = (n - 1) * y_test.cols + 1
+            local y_ei = y_si + y_test.cols - 1
+            local tmp = {}
+            copy_range(tmp, y_test.vals, y_si, y_ei)
+            correct_answer = matrix2d.new(tmp, y_test.cols, 1):argmax()
+
+            local x_si = (n - 1) * x_test.cols + 1
+            local x_ei = x_si + x_test.cols - 1
+            copy_range(image.vals, x_test.vals, x_si, x_ei)
+        end)
+
+        while true do
+            win.setVisible(false)
+            win.clear()
+            cv.clear()
+
+            local mb = mouse_click.button or mouse_drag.button
+            local mx = mouse_click.x or mouse_drag.x
+            local my = mouse_click.y or mouse_drag.y
+            if mx and my then
+                local rx = (mx - wx + 1) * 2
+                local ry = (my - wy + 1) * 3
+
+                -- Either add or subtract the colour value.
+                local sign = mb == 1 and 1 or mb == 2 and -1 or 0
+                -- Top row
+                put(image, rx - 1, ry - 1, 0.50 * sign)
+                put(image, rx + 0, ry - 1, 0.75 * sign)
+                put(image, rx + 1, ry - 1, 0.50 * sign)
+                -- Middle row
+                put(image, rx - 1, ry + 0, 0.75 * sign)
+                put(image, rx + 0, ry + 0, 1.00 * sign)
+                put(image, rx + 1, ry + 0, 0.75 * sign)
+                -- Bottom row
+                put(image, rx - 1, ry + 1, 0.50 * sign)
+                put(image, rx + 0, ry + 1, 0.75 * sign)
+                put(image, rx + 1, ry + 1, 0.50 * sign)
+            end
+
+            clear_btn.on_click()
+            random_btn.on_click()
+
+            if model.input.val ~= image then
+                model.input.val = image:copy()
+                model.feed_forward()
+            end
+
+            -- We don't use the 29th and 30th rows as the images are 28x28.
+            cv.fill(1, 29, cv.w, 2, BLACK)
+            local px, iv = cv.pixels, image.vals
+            for i = 1, #iv do -- Lazy way of displaying.
+                if iv[i] >= 0.75 then
+                    px[i] = BLACK
+                elseif iv[i] >= 0.5 then
+                    px[i] = GREY
+                elseif iv[i] >= 0.25 then
+                    px[i] = LIGHT_GREY
+                end
+            end
+
+            display.blit_canvas(win, cv)
+            clear_btn.draw(win)
+            random_btn.draw(win)
+
+            local x_off, y_off = 16, 1
+            local i_highlight = model.output.val:argmax()
+            local ovv = model.output.val.vals
+            for i = 1, #ovv do
+                local bgc = colours.black
+                if correct_answer then
+                    if i == correct_answer then
+                        bgc = colours.green
+                    elseif i == i_highlight then
+                        bgc = (i_highlight == correct_answer) and colours.green or colours.red
+                    end
+                elseif i == i_highlight then
+                    bgc = colours.green
+                end
+
+                win.setBackgroundColour(bgc)
+                win:write_at(x_off, y_off + i - 1, string.format("%d %3d%%", i - 1, ovv[i] * 100))
+                win.setBackgroundColour(colours.black)
+            end
+
+            win:write_at(1, 11, "LMB: draw, RMB: erase")
+            win.setVisible(true)
+
+            mouse_click, mouse_drag = {}, {}
+
+            os.sleep(0.05)
+        end
+    end
+
+    parallel.waitForAny(screen, input_listener)
+end
+
+if arg[1] == nil or arg[1] == "demo" then
+    local save = arg[2] or math.max(table.unpack(fs.list(PROGRESS_DIR_PATH)))
+    local n_samples = tonumber(arg[3]) or 250
+    demo(save, n_samples)
+elseif arg[1] == "train" then
+    local n_epochs = tonumber(arg[2]) or 20
+    local batch_size = tonumber(arg[3]) or 50
+    local learning_rate = tonumber(arg[4]) or 0.01
+    local save = arg[5]
+
+    print("Settings:")
+    print(string.format("# epochs      %s", n_epochs))
+    print(string.format("batch size    %s", batch_size))
+    print(string.format("learning rate %s", learning_rate))
+    print(string.format("save          %s", save))
+
+    print("Continue? y/n")
+    term.write("> ")
+    local input = io.read()
+    if input:lower() == "y" then train(n_epochs, batch_size, learning_rate, save) end
+else
+    print("Unknown arguments!")
+    print()
+    print("Usage:")
+    print()
+    print("demo [save] [n_samples]")
+    print()
+    print("train [epochs] [batch size] [learning rate] [save]")
+    print()
+    print("Invalid arguments for 'demo' or 'train' will resort to defaults.")
+end

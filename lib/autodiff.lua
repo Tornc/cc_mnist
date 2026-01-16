@@ -79,8 +79,8 @@ function autodiff.model()
     self.output = nil         --- @type ModelVariable?
     self.desired_output = nil --- @type ModelVariable?
     self.cost = nil           --- @type ModelVariable?
-    self.forward_prog = {}    --- @type table<ModelVariable>
-    self.cost_prog = {}       --- @type table<ModelVariable>
+    self.forward_program = {} --- @type table<ModelVariable>
+    self.cost_program = {}    --- @type table<ModelVariable>
     self.parameters = {}      --- @type table<string, ModelVariable> For saving weights and biases.
 
     --[[ MODEL VARIABLE FACTORIES ]]
@@ -226,7 +226,7 @@ function autodiff.model()
 
     --- @param out_var ModelVariable
     --- @return table<ModelVariable>
-    local function program_create(out_var)
+    local function create_program(out_var)
         local visited = {} --- @type table<ModelVariable, boolean|nil>
         local stack = {}   --- @type table<ModelVariable>
         local out = {}     --- @type table<ModelVariable>
@@ -260,11 +260,11 @@ function autodiff.model()
     end
 
     --- Forward pass
-    --- @param prog table<ModelVariable>
-    local function program_compute(prog)
+    --- @param program table<ModelVariable>
+    local function compute_program(program)
         local unpack = table.unpack
-        for i = 1, #prog do
-            local cur = prog[i]             --- @type ModelVariable
+        for i = 1, #program do
+            local cur = program[i]          --- @type ModelVariable
             -- Note that they can be nil, but MV_OP check will prevent nil access.
             local a, b = unpack(cur.inputs) --- @type ModelVariable, ModelVariable
             local co = cur.op
@@ -286,24 +286,24 @@ function autodiff.model()
     end
 
     --- Backward pass
-    --- @param prog table<ModelVariable>
-    local function program_compute_grads(prog)
-        for i = 1, #prog do
-            local cur = prog[i] --- @type ModelVariable
+    --- @param program table<ModelVariable>
+    local function compute_program_grads(program)
+        for i = 1, #program do
+            local cur = program[i] --- @type ModelVariable
             if btest(cur.flags, VAR_FLAG.REQUIRES_GRAD) == false then goto continue end
             if btest(cur.flags, VAR_FLAG.PARAMETER) then goto continue end
             cur.grad = matrix2d.fill(0, cur.grad.rows, cur.grad.cols) -- Clear
             ::continue::
         end
 
-        local last_var = prog[#prog]
+        local last_var = program[#program]
         last_var.grad = matrix2d.fill(1, last_var.grad.rows, last_var.grad.cols)
 
         local unpack = table.unpack
-        for i = #prog, 1, -1 do
-            local cur = prog[i] --- @type ModelVariable
+        for i = #program, 1, -1 do
+            local cur = program[i] --- @type ModelVariable
 
-            if not btest(cur.flags, VAR_FLAG.REQUIRES_GRAD) then goto continue end
+            if btest(cur.flags, VAR_FLAG.REQUIRES_GRAD) == false then goto continue end
 
             local a, b = unpack(cur.inputs) --- @type ModelVariable, ModelVariable
             local co = cur.op
@@ -372,8 +372,7 @@ function autodiff.model()
 
     --- @param path string
     function self.load_from_disk(path)
-        --- @TODO: check if file exists and other stuff?
-        --- @TODO: how should we set current epoch?
+        if not fs.exists(path) then error("Save [" .. path .. "] does not exist!") end
         local file = fs.open(path, "r")
         local km = textutils.unserialiseJSON(file.readAll())
         for k, v in pairs(km) do
@@ -393,12 +392,12 @@ function autodiff.model()
     function self.compile()
         if not self.output then error("Model has no output!", 2) end
         if not self.cost then error("Model has no cost!", 2) end
-        self.forward_prog = program_create(self.output)
-        self.cost_prog = program_create(self.cost)
+        self.forward_program = create_program(self.output)
+        self.cost_program = create_program(self.cost)
     end
 
     function self.feed_forward()
-        program_compute(self.forward_prog)
+        compute_program(self.forward_program)
     end
 
     --- Stochastic Gradient Descent
@@ -418,7 +417,7 @@ function autodiff.model()
         local batch_size = context.batch_size
         local learning_rate = context.learning_rate
 
-        --- @TODO: this is not good
+        --- @NOTE: this is not good
         local num_batches = math.floor(num_examples / batch_size)
 
         local training_order = {}
@@ -426,11 +425,18 @@ function autodiff.model()
             training_order[i] = i
         end
 
-        --- @TODO: instead of starting epoch from 0, check if we are loading
-        --- anything (from context, either a number (error if not exist) or 'latest' or nil (don't load))
-
         local random, copy_range = math.random, utils.copy_range
-        local auto_yield = utils.yielder(1000, 4000)
+        local auto_yield = utils.yielder(250, 4000)
+
+        local tw, th = term.getSize()
+        local cx, cy = term.getCursorPos()
+        local win = window.create(term.current(), cx, cy + 1, tw, th)
+        win.write_at = function(self, x, y, str)
+            self.setVisible(false)
+            self.setCursorPos(x, y); self.write(str)
+            self.setVisible(true)
+        end
+
         for epoch = 1, epochs do
             -- Fisher-Yates shuffle
             for i = #training_order, 2, -1 do
@@ -439,8 +445,8 @@ function autodiff.model()
             end
 
             for batch = 1, num_batches do
-                for i = 1, #self.cost_prog do
-                    local cur = self.cost_prog[i] --- @type ModelVariable
+                for i = 1, #self.cost_program do
+                    local cur = self.cost_program[i] --- @type ModelVariable
                     if btest(cur.flags, VAR_FLAG.PARAMETER) then
                         cur.grad = matrix2d.fill(0, cur.grad.rows, cur.grad.cols)
                     end
@@ -461,31 +467,28 @@ function autodiff.model()
                         lbl_start, lbl_start + output_size - 1
                     )
 
-                    program_compute(self.cost_prog)
-                    program_compute_grads(self.cost_prog)
+                    compute_program(self.cost_program)
+                    compute_program_grads(self.cost_program)
 
                     avg_cost = avg_cost + self.cost.val:sum()
                 end
 
                 avg_cost = avg_cost / batch_size
 
-                for i = 1, #self.cost_prog do
-                    local cur = self.cost_prog[i] --- @type ModelVariable
+                for i = 1, #self.cost_program do
+                    local cur = self.cost_program[i] --- @type ModelVariable
                     if btest(cur.flags, VAR_FLAG.PARAMETER) then
                         cur.grad = cur.grad:scale(learning_rate / batch_size)
                         cur.val  = cur.val:sub(cur.grad)
                     end
                 end
 
-                print(string.format("Epoch %2d/%2d, Batch %4d/%4d, Average Cost: %.4f",
+                win:write_at(1, 1, string.format("Epoch %d/%d, Batch %d/%d, Avg Cost: %.4f",
                     epoch, epochs, batch, num_batches, avg_cost
                 ))
             end
 
-            print()
-            local num_correct = 0
-            local avg_cost = 0
-
+            local num_correct, avg_cost = 0, 0
             for i = 1, num_tests do
                 auto_yield()
                 local img_start = (i - 1) * input_size + 1
@@ -497,7 +500,7 @@ function autodiff.model()
                     lbl_start, lbl_start + output_size - 1
                 )
 
-                program_compute(self.cost_prog)
+                compute_program(self.cost_program)
 
                 avg_cost = avg_cost + self.cost.val:sum()
                 if self.output.val:argmax() == self.desired_output.val:argmax() then
@@ -506,15 +509,15 @@ function autodiff.model()
             end
 
             avg_cost = avg_cost / num_tests
-            print(string.format("Test completed. Accuracy: %5d/%5d (%.1f%%), Average Cost: %.4f",
-                num_correct, num_tests, num_correct / num_tests * 100, avg_cost
+
+            win:write_at(1, 3, string.format("Test %d/%d. Acc: %d/%d (%.1f%%), Avg Cost: %.4f",
+                epoch, epochs, num_correct, num_tests, num_correct / num_tests * 100, avg_cost
             ))
-            print()
 
             -- write_to_disk(context.save_dir .. "/" .. epoch)
-            -- print("Successfully saved parameters to disk.")
-            -- print()
+            win:write_at(1, 5, string.format("Saved epoch %d parameters to disk.", epoch))
         end
+        win.setCursorPos(1, 7) -- Dumb hack for timed(...)
     end
 
     return self
