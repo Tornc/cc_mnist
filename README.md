@@ -7,6 +7,8 @@ All of the ML-related code is based on Magicalbat's [**youtube**](https://www.yo
 
 ![interactive demo](./docs/demo.gif)
 
+![training](./docs/train.png)
+
 1 epoch took ~7 minutes on regular CraftOS. With CraftOS-PC Accelerated, it takes ~20 seconds. LuaJIT is amazing.
 
 ### TODO
