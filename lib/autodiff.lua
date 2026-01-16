@@ -12,7 +12,7 @@ local btest, bor = bit32.btest, bit32.bor
 
 local autodiff = {}
 
---[[ ENUMS, UTILITY, CLASSES ]]
+--[[ CONSTANTS ]]
 
 local VAR_FLAG = {      --- @enum ModelVariableFlag
     NONE           = 0, -- `bit32.lshift(0, 0)`
@@ -37,7 +37,7 @@ local VAR_OP = { --- @enum ModelVariableOperation
     CROSS_ENTROPY = 2004,
 }
 
-local MV_MAX_INPUTS = 2
+local VAR_MAX_INPUTS = 2
 
 --- @param op ModelVariableOperation
 --- @return integer
@@ -102,17 +102,16 @@ function autodiff.model()
         var.val = matrix2d.fill(0, rows, cols)
         var.op = VAR_OP.CREATE
         var.inputs = {}
-
-        --- @TODO: this is terrible, where did I fuck up?
-        -- if btest(flags, MV_FLAG.REQUIRES_GRAD) then
-        var.grad = matrix2d.fill(0, rows, cols)
-        -- end
+        if btest(flags, VAR_FLAG.REQUIRES_GRAD) then
+            var.grad = matrix2d.fill(0, rows, cols)
+        end
 
         if btest(flags, VAR_FLAG.PARAMETER) then
             if not name then error("Parameter has not been assigned a name!", 2) end
             if self.parameters[name] then error("Parameter already exists!", 2) end
             self.parameters[name] = var
         end
+
         if btest(flags, VAR_FLAG.INPUT) then
             if self.input then error("Input already set!", 2) end
             self.input = var
@@ -291,7 +290,7 @@ function autodiff.model()
     local function program_compute_grads(prog)
         for i = 1, #prog do
             local cur = prog[i] --- @type ModelVariable
-            if not btest(cur.flags, VAR_FLAG.REQUIRES_GRAD) then goto continue end
+            if btest(cur.flags, VAR_FLAG.REQUIRES_GRAD) == false then goto continue end
             if btest(cur.flags, VAR_FLAG.PARAMETER) then goto continue end
             cur.grad = matrix2d.fill(0, cur.grad.rows, cur.grad.cols) -- Clear
             ::continue::
@@ -349,11 +348,10 @@ function autodiff.model()
             elseif co == VAR_OP.CROSS_ENTROPY then
                 local p, q = a, b
                 local pgn, pqn = matrix2d.cross_entropy_grad(
-                    p.val, q.val, cur.grad, true, true
+                    p.val, q.val, cur.grad, p.grad ~= nil, q.grad ~= nil
                 )
-                --- @TODO: p.grad is nil; why is MV_FLAG.REQUIRES_GRAD not catching this?
-                p.grad = p.grad + pgn
-                q.grad = q.grad + pqn
+                if pgn then p.grad = p.grad + pgn end
+                if pqn then q.grad = q.grad + pqn end
             end
             ::continue::
         end
@@ -513,9 +511,9 @@ function autodiff.model()
             ))
             print()
 
-            write_to_disk(context.save_dir .. "/" .. epoch)
-            print("Successfully saved parameters to disk.")
-            print()
+            -- write_to_disk(context.save_dir .. "/" .. epoch)
+            -- print("Successfully saved parameters to disk.")
+            -- print()
         end
     end
 

@@ -1,35 +1,49 @@
+-- [[ PLATFORM-SPECIFIC CODE ]]
+
 if not periphemu then print("You're inside of Minecraft, aren't you?") end
 if not ffi then print("Please consider using LuaJIT.") end
+if periphemu then periphemu.create("front", "monitor") end
 
-local pp = require("cc.pretty").pretty_print --- @type function
+--[[ IMPORTS ]]
+
 local autodiff = require("lib.autodiff")
 local display = require("lib.display")
 local matrix2d = require("lib.matrix2d")
+local pretty = require("cc.pretty")
 local utils = require("lib.utils")
 
-local MV_FLAG = autodiff.VAR_FLAG
-local auto_yield, timed, copy_range = utils.yielder(1000, 4000), utils.timed, utils.copy_range
-local bor = bit32.bor
+--[[ PERIPHERALS ]]
+
+local MONITOR = peripheral.find("monitor")
+MONITOR.write_at = function(self, x, y, str) -- I love injection
+    self.setCursorPos(x, y); self.write(str)
+end
+
+--[[ CONSTANTS ]]
 
 local TRAINING_PATH = shell.resolve("./dataset/mnist_train.csv")
 local TEST_PATH = shell.resolve("./dataset/mnist_test.csv")
 local PROGRESS_DIR_PATH = shell.resolve("./progress")
+
+local WHITE = colours.toBlit(colours.white)
+local LIGHT_GREY = colours.toBlit(colours.lightGrey)
+local GREY = colours.toBlit(colours.grey)
+local BLACK = colours.toBlit(colours.black)
+
+--[[ ALIASES ]]
+
+local VAR_FLAG = autodiff.VAR_FLAG
+local auto_yield, timed, copy_range = utils.yielder(1000, 4000), utils.timed, utils.copy_range
+local bor = bit32.bor
+local pp = pretty.pretty_print --- @type function
+
+--[[ FUNCTIONS ]]
 
 --- @param image table<number> 0-1
 --- @param label table<number> 10 numbers
 --- @param pred_pre table<number> 10 numbers
 --- @param pred_post table<number>? 10 numbers
 local function display_number(image, label, pred_pre, pred_post)
-    periphemu.create("front", "monitor")
-    local MONITOR = peripheral.find("monitor")
-    MONITOR.write_at = function(self, x, y, str)
-        self.setCursorPos(x, y); self.write(str)
-    end
-    local WHITE = colours.toBlit(colours.white)
-    local LIGHT_GREY = colours.toBlit(colours.lightGrey)
-    local GREY = colours.toBlit(colours.grey)
-    local BLACK = colours.toBlit(colours.black)
-
     local cv = display.canvas(28, 30, BLACK)
     local win = window.create(MONITOR, 1, 1, cv.w / 2, cv.h / 3)
 
@@ -115,22 +129,15 @@ end
 
 --- @param model Model
 local function create_mnist_model(model)
-    local input = model.var_create(784, 1, MV_FLAG.INPUT)
+    local input = model.var_create(784, 1, VAR_FLAG.INPUT)
 
-    local w0 = model.var_create(16, 784, bor(MV_FLAG.REQUIRES_GRAD, MV_FLAG.PARAMETER), "w0")
-    local w1 = model.var_create(16, 16, bor(MV_FLAG.REQUIRES_GRAD, MV_FLAG.PARAMETER), "w1")
-    local w2 = model.var_create(10, 16, bor(MV_FLAG.REQUIRES_GRAD, MV_FLAG.PARAMETER), "w2")
+    local w0 = model.var_create(16, 784, bor(VAR_FLAG.REQUIRES_GRAD, VAR_FLAG.PARAMETER), "w0")
+    local w1 = model.var_create(16, 16, bor(VAR_FLAG.REQUIRES_GRAD, VAR_FLAG.PARAMETER), "w1")
+    local w2 = model.var_create(10, 16, bor(VAR_FLAG.REQUIRES_GRAD, VAR_FLAG.PARAMETER), "w2")
 
-    local bound0 = math.sqrt(6 / (784 + 16))
-    local bound1 = math.sqrt(6 / (16 + 16))
-    local bound2 = math.sqrt(6 / (16 + 10))
-    w0.val = matrix2d.fill_rand(-bound0, bound0, w0.val.rows, w0.val.cols)
-    w1.val = matrix2d.fill_rand(-bound1, bound1, w1.val.rows, w1.val.cols)
-    w2.val = matrix2d.fill_rand(-bound2, bound2, w2.val.rows, w2.val.cols)
-
-    local b0 = model.var_create(16, 1, bor(MV_FLAG.REQUIRES_GRAD, MV_FLAG.PARAMETER), "b0")
-    local b1 = model.var_create(16, 1, bor(MV_FLAG.REQUIRES_GRAD, MV_FLAG.PARAMETER), "b1")
-    local b2 = model.var_create(10, 1, bor(MV_FLAG.REQUIRES_GRAD, MV_FLAG.PARAMETER), "b2")
+    local b0 = model.var_create(16, 1, bor(VAR_FLAG.REQUIRES_GRAD, VAR_FLAG.PARAMETER), "b0")
+    local b1 = model.var_create(16, 1, bor(VAR_FLAG.REQUIRES_GRAD, VAR_FLAG.PARAMETER), "b1")
+    local b2 = model.var_create(10, 1, bor(VAR_FLAG.REQUIRES_GRAD, VAR_FLAG.PARAMETER), "b2")
 
     local z0_a = model.var_matmul(w0, input)
     local z0_b = model.var_add(z0_a, b0)
@@ -143,15 +150,24 @@ local function create_mnist_model(model)
 
     local z2_a = model.var_matmul(w2, a1)
     local z2_b = model.var_add(z2_a, b2)
-    local output = model.var_softmax(z2_b, MV_FLAG.OUTPUT)
+    local output = model.var_softmax(z2_b, VAR_FLAG.OUTPUT)
 
-    local y = model.var_create(10, 1, MV_FLAG.DESIRED_OUTPUT)
-    local cost = model.var_cross_entropy(y, output, MV_FLAG.COST)
+    local y = model.var_create(10, 1, VAR_FLAG.DESIRED_OUTPUT)
+
+    local cost = model.var_cross_entropy(y, output, VAR_FLAG.COST)
+
+    -- Initialise weights (not 0)
+    local bound0 = math.sqrt(6 / (784 + 16))
+    local bound1 = math.sqrt(6 / (16 + 16))
+    local bound2 = math.sqrt(6 / (16 + 10))
+    w0.val = matrix2d.fill_rand(-bound0, bound0, w0.val.rows, w0.val.cols)
+    w1.val = matrix2d.fill_rand(-bound1, bound1, w1.val.rows, w1.val.cols)
+    w2.val = matrix2d.fill_rand(-bound2, bound2, w2.val.rows, w2.val.cols)
 end
 
 local function main()
-    local y_train, x_train = timed(load_csv, { TRAINING_PATH, 1000 }, "Train .csv -> matrix")
-    local y_test, x_test = timed(load_csv, { TEST_PATH, 100 }, "Test .csv -> matrix")
+    local y_train, x_train = timed(load_csv, { TRAINING_PATH, nil }, "Train .csv -> matrix")
+    local y_test, x_test = timed(load_csv, { TEST_PATH, nil }, "Test .csv -> matrix")
 
     local model = autodiff.model()
     create_mnist_model(model)
@@ -174,11 +190,11 @@ local function main()
     local pred_pre = model.output.val:copy()
     display_number(model.input.val.vals, label, pred_pre.vals)
 
-    -- timed(model.train, { autodiff.training_context(
-    --     x_train, y_train, x_test, y_test, 3, 50, 0.03, PROGRESS_DIR_PATH
-    -- ) }, "Training")
+    timed(model.train, { autodiff.training_context(
+        x_train, y_train, x_test, y_test, 1, 50, 0.03, PROGRESS_DIR_PATH
+    ) }, "Training")
 
-    model.load_from_disk(PROGRESS_DIR_PATH .. "/" .. 3)
+    -- model.load_from_disk(PROGRESS_DIR_PATH .. "/" .. 3)
 
     -- Post training output
     copy_range(model.input.val.vals, x_test.vals, x_si, x_ei)
@@ -189,3 +205,5 @@ local function main()
 end
 
 main()
+
+-- pp(fs.list(PROGRESS_DIR_PATH))
