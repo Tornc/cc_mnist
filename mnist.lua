@@ -117,21 +117,23 @@ end
 --- @param batch_size integer
 --- @param learning_rate number
 --- @param save string?
-local function train(n_epochs, batch_size, learning_rate, save)
+--- @param write_to_disk boolean
+local function train(n_epochs, batch_size, learning_rate, save, write_to_disk)
     term.clear()
     term.setCursorPos(1, 1)
 
     if not periphemu then print("You're inside of Minecraft, aren't you?") end
     if not ffi then print("Please consider using LuaJIT.") end
 
-    local y_train, x_train = timed(load_csv, { TRAINING_PATH, nil }, "Train .csv -> matrix")
+    local y_train, x_train = timed(load_csv, { TRAINING_PATH, 100 }, "Train .csv -> matrix")
     local y_test, x_test = timed(load_csv, { TEST_PATH, nil }, "Test .csv -> matrix")
     local model = create_mnist_model()
     model.compile()
     if save then model.load_from_disk(PROGRESS_DIR_PATH .. "/" .. save) end
 
     timed(model.train, { autodiff.training_context(
-        x_train, y_train, x_test, y_test, n_epochs, batch_size, learning_rate, PROGRESS_DIR_PATH
+        x_train, y_train, x_test, y_test, n_epochs, batch_size, learning_rate,
+        write_to_disk and PROGRESS_DIR_PATH or nil
     ) }, "Training")
 end
 
@@ -328,33 +330,37 @@ local function demo(save, n_samples)
 end
 
 if arg[1] == nil or arg[1] == "demo" then
-    local save = arg[2] or math.max(table.unpack(fs.list(PROGRESS_DIR_PATH)))
+    local loaded_save = arg[2] or math.max(table.unpack(fs.list(PROGRESS_DIR_PATH)))
     local n_samples = tonumber(arg[3]) or 250
-    demo(save, n_samples)
+    demo(loaded_save, n_samples)
 elseif arg[1] == "train" then
     local n_epochs = tonumber(arg[2]) or 20
     local batch_size = tonumber(arg[3]) or 50
     local learning_rate = tonumber(arg[4]) or 0.01
-    local save = arg[5]
+    local save = arg[5] ~= "nil" and arg[5] or nil
+    local write_to_disk = arg[6] == "true"
 
     print("Settings:")
     print(string.format("# epochs      %s", n_epochs))
     print(string.format("batch size    %s", batch_size))
     print(string.format("learning rate %s", learning_rate))
     print(string.format("save          %s", save))
+    print(string.format("write to disk %s", write_to_disk))
 
     print("Continue? y/n")
     term.write("> ")
     local input = io.read()
-    if input:lower() == "y" then train(n_epochs, batch_size, learning_rate, save) end
+
+    if input:lower() == "y" then train(n_epochs, batch_size, learning_rate, save, write_to_disk) end
 else
     print("Unknown arguments!")
     print()
     print("Usage:")
     print()
-    print("demo [save] [n_samples]")
+    print("demo [save to load] [# samples]")
+    print("      (string)      (integer)")
     print()
-    print("train [epochs] [batch size] [learning rate] [save]")
-    print()
+    print("train [# epochs] [batch size] [learning rate] [save to load] [write to disk]")
+    print("      (integer)   (integer)     (number)       (string?)       (boolean)")
     print("Invalid arguments for 'demo' or 'train' will resort to defaults.")
 end

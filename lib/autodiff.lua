@@ -51,7 +51,7 @@ end
 --- @param epochs integer
 --- @param batch_size integer
 --- @param learning_rate number
---- @param save_dir string
+--- @param save_dir string?
 --- @return TrainingContext
 function autodiff.training_context(train_images, train_labels, test_images, test_labels,
                                    epochs, batch_size, learning_rate, save_dir)
@@ -511,8 +511,10 @@ function autodiff.model()
                 epoch, epochs, num_correct, num_tests, num_correct / num_tests * 100, avg_cost
             ))
 
-            write_to_disk(context.save_dir .. "/" .. epoch)
-            win:write_at(1, 5, string.format("Saved epoch %d parameters to disk.", epoch))
+            if context.save_dir then
+                write_to_disk(context.save_dir .. "/" .. epoch)
+                win:write_at(1, 5, string.format("Saved epoch %d parameters to disk.", epoch))
+            end
         end
         win.setCursorPos(1, 7) -- Dumb hack for timed(...)
     end
