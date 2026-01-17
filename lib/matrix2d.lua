@@ -111,32 +111,6 @@ function matrix2d.softmax_grad(input, grad)
     return matrix2d.new(jv, size, size):matmul(grad)
 end
 
---- O(n) compared to `softmax_grad`'s O(n^2), please use this instead.
---- @param input Matrix2d Softmax output vector
---- @param grad Matrix2d Gradient vector
---- @return Matrix2d
-function matrix2d.softmax_grad_vector(input, grad)
-    if input.rows ~= 1 and input.cols ~= 1 then error("Not a row/column vector!", 2) end
-    if grad.rows ~= 1 and grad.cols ~= 1 then error("Not a row/column vector!", 2) end
-    if input.rows ~= grad.rows then error("Row mismatch!", 2) end
-    if input.cols ~= grad.cols then error("Column mismatch!", 2) end
-
-    local iv, gv = input.vals, grad.vals
-    local size = math.max(input.rows, input.cols)
-
-    local dot = 0
-    for i = 1, size do
-        dot = dot + iv[i] * gv[i]
-    end
-
-    local out = {}
-    for i = 1, size do
-        out[i] = iv[i] * (gv[i] - dot)
-    end
-
-    return matrix2d.new(out, input.rows, input.cols)
-end
-
 --- @param p Matrix2d
 --- @param q Matrix2d
 --- @param grad Matrix2d
@@ -338,7 +312,7 @@ function matrix2d.new(values, rows, cols)
     local self = {}
 
     self.vals = values --- @type table<number>
-    self.rows = rows -- Row-major btw.
+    self.rows = rows   -- Row-major btw.
     self.cols = cols
 
     -- m, m -> m

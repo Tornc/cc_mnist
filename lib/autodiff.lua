@@ -4,7 +4,6 @@
     This is the black magic shit.
 ]]
 
-local pp = require("cc.pretty").pretty_print --- @type function
 local matrix2d = require("lib.matrix2d")
 local utils = require("lib.utils")
 
@@ -36,8 +35,6 @@ local VAR_OP = { --- @enum ModelVariableOperation
     MATMUL        = 2003,
     CROSS_ENTROPY = 2004,
 }
-
-local VAR_MAX_INPUTS = 2
 
 --- @param op ModelVariableOperation
 --- @return integer
@@ -323,7 +320,7 @@ function autodiff.model()
             if co == VAR_OP.RELU then
                 a.grad = a.grad + matrix2d.relu_grad(a.val, cur.grad)
             elseif co == VAR_OP.SOFTMAX then
-                a.grad = matrix2d.softmax_grad_vector(cur.val, cur.grad) -- Intentional
+                a.grad = matrix2d.softmax_grad(cur.val, cur.grad) -- Intentional
             elseif co == VAR_OP.ADD then
                 if btest(a.flags, VAR_FLAG.REQUIRES_GRAD) then
                     a.grad = a.grad + cur.grad
