@@ -330,9 +330,16 @@ local function demo(save, n_samples)
 end
 
 if arg[1] == nil or arg[1] == "demo" then
-    local loaded_save = arg[2] or math.max(table.unpack(fs.list(PROGRESS_DIR_PATH)))
+    local save = arg[2]
+    if not save then
+        local saves = fs.list(PROGRESS_DIR_PATH)
+        for i = 1, #saves do
+            saves[i] = tonumber(saves[i])
+        end
+        save = math.max(table.unpack(saves))
+    end
     local n_samples = tonumber(arg[3]) or 250
-    demo(loaded_save, n_samples)
+    demo(save, n_samples)
 elseif arg[1] == "train" then
     local n_epochs = tonumber(arg[2]) or 20
     local batch_size = tonumber(arg[3]) or 50
