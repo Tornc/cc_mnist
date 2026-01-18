@@ -9,7 +9,11 @@ All of the ML-related code is based on Magicalbat's [**youtube**](https://www.yo
 
 ![training](./docs/train.png)
 
-1 epoch took ~7 minutes on regular CraftOS. With CraftOS-PC Accelerated, it takes ~20 seconds. LuaJIT is amazing.
+About 20 seconds / epoch with the power of LuaJIT.
+
+![training pure lua](./docs/train_pure_lua.png)
+
+About 3 minutes / epoch with pure Lua. Note that this uses matrix multiplications with the loops unrolled. If this is not done, it's about 7 minutes / epoch.
 
 ### Regarding performance (or lack thereof)
 
@@ -20,7 +24,7 @@ Many questionable design choices were made during adaptation. One of which is no
 - [x] Fix the bugs
 - [x] Save/load weights to disk
 - [x] Command line args
-- [ ] Test the performance of pregenerating hard-coded matrix math functions for specific sizes and save it to disk to re-use
+- [x] Pregenerate optimised matmul functions
 - [ ] Optimise more
   - [ ] Ditch the auto_yielder; use in-line calls instead.
 - [x] Make it work with CraftOS
