@@ -4,6 +4,8 @@
     NIH syndrome is bad.
 ]]
 
+--- @TODO: check which functions can also benefit from unrolling
+
 local matrix2d = {}
 
 --- @type table<string, function>
@@ -80,7 +82,6 @@ function matrix2d.clear_cache()
     if io.read():lower() == "y" then fs.delete(cache_dir_path) end
 end
 
---- @TODO: check if an unrolled add is also handy.
 --- @param self Matrix2d
 --- @param m Matrix2d
 --- @return Matrix2d
