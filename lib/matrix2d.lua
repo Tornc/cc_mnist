@@ -57,6 +57,7 @@ local function compile_file(path)
     return result
 end
 
+--- Credit goes to u/9551-eletronics for this idea. <br>
 --- With LuaJIT, the generated function will be **SLOWER** than normal matmul. With pure Lua,
 --- it's more than 2x faster. Note that very large dimensions will run into the 65k(16-bit)
 --- constant limit - or run into timeout issues when loading.
