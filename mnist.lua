@@ -8,9 +8,10 @@ local utils = require("lib.utils")
 
 --[[ CONSTANTS ]]
 
-local TRAINING_PATH = shell.resolve("./dataset/mnist_train.csv")
-local TEST_PATH = shell.resolve("./dataset/mnist_test.csv")
+local TRAINING_FILE_PATH = shell.resolve("./dataset/mnist_train.csv")
+local TEST_FILE_PATH = shell.resolve("./dataset/mnist_test.csv")
 local PROGRESS_DIR_PATH = shell.resolve("./progress")
+local MATRIX_CACHE_DIR_PATH = shell.resolve("./cache/")
 
 --[[ ALIASES ]]
 
@@ -113,6 +114,18 @@ local function create_mnist_model()
     return model
 end
 
+local function precompile_matrix2d_operations()
+    matrix2d.set_cache_path(MATRIX_CACHE_DIR_PATH)
+    matrix2d.register_matmul(10, 10, 1)
+    matrix2d.register_matmul(10, 16, 1)
+    matrix2d.register_matmul(10, 1, 16)
+    matrix2d.register_matmul(16, 10, 1)
+    matrix2d.register_matmul(16, 16, 1)
+    matrix2d.register_matmul(16, 1, 16)
+    matrix2d.register_matmul(16, 1, 784)
+    matrix2d.register_matmul(16, 784, 1)
+end
+
 --- @param n_epochs integer
 --- @param batch_size integer
 --- @param learning_rate number
@@ -125,8 +138,12 @@ local function train(n_epochs, batch_size, learning_rate, save, write_to_disk)
     if not periphemu then print("You're inside of Minecraft, aren't you?") end
     if not ffi then print("Please consider using LuaJIT.") end
 
-    local y_train, x_train = timed(load_csv, { TRAINING_PATH, 100 }, "Train .csv -> matrix")
-    local y_test, x_test = timed(load_csv, { TEST_PATH, nil }, "Test .csv -> matrix")
+    -- Is actually slower when using LuaJIT
+    if not ffi then timed(precompile_matrix2d_operations, nil, "Precompiling matrix2d operations") end
+
+    local y_train, x_train = timed(load_csv, { TRAINING_FILE_PATH, nil }, "Train .csv -> matrix")
+    local y_test, x_test = timed(load_csv, { TEST_FILE_PATH, nil }, "Test .csv -> matrix")
+
     local model = create_mnist_model()
     model.compile()
     if save then model.load_from_disk(PROGRESS_DIR_PATH .. "/" .. save) end
@@ -145,7 +162,7 @@ local function demo(save, n_samples)
     local model = create_mnist_model()
     model.compile()
     model.load_from_disk(PROGRESS_DIR_PATH .. "/" .. save)
-    local y_test, x_test = load_csv(TEST_PATH, n_samples)
+    local y_test, x_test = load_csv(TEST_FILE_PATH, n_samples)
 
     -- [[ DEMO CONSTANTS ]]
 
@@ -356,9 +373,7 @@ elseif arg[1] == "train" then
 
     print("Continue? y/n")
     term.write("> ")
-    local input = io.read()
-
-    if input:lower() == "y" then train(n_epochs, batch_size, learning_rate, save, write_to_disk) end
+    if io.read():lower() == "y" then train(n_epochs, batch_size, learning_rate, save, write_to_disk) end
 else
     print("Unknown arguments!")
     print()

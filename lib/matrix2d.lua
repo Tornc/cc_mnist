@@ -6,6 +6,81 @@
 
 local matrix2d = {}
 
+--- @type table<string, function>
+local cache = {}
+local cache_dir_path = nil
+
+--- @param path string
+function matrix2d.set_cache_path(path) cache_dir_path = path end
+
+--- @TODO: Yielding
+--- @param m integer Rows matrix 1
+--- @param n integer Column matrix 1 / Rows matrix 2
+--- @param p integer Column matrix 2
+local function generate_matmul(m, n, p)
+    local insert, concat = table.insert, table.concat
+    local format = string.format
+
+    local lines = {}
+    local ln = function(v, ...) insert(lines, format(v, ...)) end
+
+    ln("return")
+    ln("function(a,b)")
+    ln("local x,y=a.vals,b.vals")
+    ln("return matrix2d.new({")
+    for i = 1, m do
+        for j = 1, p do
+            local terms = {}
+            for k = 1, n do
+                terms[k] = format("x[%d]*y[%d]", (i - 1) * n + k, (k - 1) * p + j)
+            end
+            insert(lines, concat(terms, "+") .. ",")
+        end
+    end
+    ln("},%d,%d)", m, p)
+    ln("end")
+
+    local file = fs.open(cache_dir_path .. "/" .. format("matmul_%dx%dx%d", m, n, p), "w")
+    file.write(concat(lines, " "))
+    file.close()
+end
+
+--- @param path string
+--- @return function
+local function compile_file(path)
+    local fn, err = loadfile(path, "t", { matrix2d = matrix2d })
+    if not fn then error("Compilation error: " .. err, 2) end
+    local ok, result = pcall(fn) --- @type boolean, function
+    if not ok then error("Execution error", 2) end
+    return result
+end
+
+--- With LuaJIT, the generated function will be **SLOWER** than normal matmul. With pure Lua,
+--- it's more than 2x faster. Note that very large dimensions will run into the 65k(16-bit)
+--- constant limit - or run into timeout issues when loading.
+--- @param m integer Rows matrix 1
+--- @param n integer Column matrix 1 / Rows matrix 2
+--- @param p integer Column matrix 2
+function matrix2d.register_matmul(m, n, p)
+    if not cache_dir_path then error("Cache directory path not set!", 2) end
+    local key  = string.format("matmul_%dx%dx%d", m, n, p)
+    local path = cache_dir_path .. "/" .. key
+    if not fs.exists(path) then generate_matmul(m, n, p) end
+    os.queueEvent("yield"); os.pullEvent("yield")
+    if not cache[key] then cache[key] = compile_file(path) end
+    os.queueEvent("yield"); os.pullEvent("yield")
+end
+
+--- Deletes the generated files.
+function matrix2d.clear_cache()
+    if not cache_dir_path then error("Cache directory path not set!", 2) end
+    print("You are about to delete the [" .. cache_dir_path .. "] directory.")
+    print("Continue? y/n")
+    term.write("> ")
+    if io.read():lower() == "y" then fs.delete(cache_dir_path) end
+end
+
+--- @TODO: check if an unrolled add is also handy.
 --- @param self Matrix2d
 --- @param m Matrix2d
 --- @return Matrix2d
@@ -39,6 +114,8 @@ end
 --- @return Matrix2d
 local function matmul(self, m)
     if self.cols ~= m.rows then error("Column-row mismatch!", 2) end
+    local key = string.format("matmul_%dx%dx%d", self.rows, self.cols, m.cols)
+    if cache[key] then return cache[key](self, m) end
 
     local result = matrix2d.fill(0, self.rows, m.cols)
     local rv, rc = result.vals, result.cols

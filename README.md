@@ -22,6 +22,7 @@ Many questionable design choices were made during adaptation. One of which is no
 - [x] Command line args
 - [ ] Test the performance of pregenerating hard-coded matrix math functions for specific sizes and save it to disk to re-use
 - [ ] Optimise more
+  - [ ] Ditch the auto_yielder; use in-line calls instead.
 - [x] Make it work with CraftOS
 - [ ] Make it work inside Minecraft (yield-spam pt.2)
 - [x] Interactive demo

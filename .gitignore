@@ -1,5 +1,6 @@
 dataset/*
 progress/*
+cache/*
 !progress/README.md
 !progress/20
 !dataset/README.md
